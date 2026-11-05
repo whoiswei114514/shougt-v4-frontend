@@ -9,7 +9,7 @@ const code = ref(
 <template>
   <a-typography class="year-page">
     <a-typography-title>
-      QA 瓜田
+      shou 瓜田
       <br />
       2026 狂欢节活动
     </a-typography-title>
@@ -19,7 +19,7 @@ const code = ref(
     </a-typography-title>
     <br />
     <a-typography-paragraph style="font-size: 1.2em">
-      请在 QA 瓜田发帖，附本页面的截图以及你找到 NFC 标签地点的照片。
+      请在 shou 瓜田发帖，附本页面的截图以及你找到 NFC 标签地点的照片。
       <br />
       下午五点我们将在瓜田公布各标签对应奖项，敬请留意。
     </a-typography-paragraph>

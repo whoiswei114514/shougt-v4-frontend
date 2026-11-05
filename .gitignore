@@ -7,7 +7,6 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-package-lock.json
 node_modules
 dist
 dist-ssr
@@ -17,6 +16,17 @@ dev-dist/
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+test-results/
+playwright-report/
+*.tsbuildinfo
+.test-work/
+*.key
+*.p12
+*.pfx
+.env.*
+!.env.example
 .idea
 .DS_Store
 *.suo

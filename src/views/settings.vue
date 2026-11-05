@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref, onMounted } from 'vue';
+import { reactive, ref, watch, defineAsyncComponent } from 'vue';
 import PrivacySetting from './settings/Privacy.vue';
 import RoleSetting from './settings/Role.vue';
 import CoinSetting from './settings/Coin.vue';
@@ -10,22 +10,16 @@ import { useStore, usePersistStore } from '../stores';
 import { isMobile } from '../consts/isMobile';
 import router from '../router';
 import { SchoolLabel } from '../consts/options';
+const SecuritySetting = defineAsyncComponent(() => import('./security/Center.vue'));
 
 const tabActiveKey = ref('account'),
   tabChange = (key: string | number) => {
-    router.replace({ query: { tab: key } });
+    router.replace({ query: { ...router.currentRoute.value.query, tab: key } });
   };
 
-onMounted(() => {
-  setTimeout(() => {
-    const tab = router.currentRoute.value.query.tab;
-    if (tab) {
-      tabActiveKey.value = tab as string;
-    } else {
-      router.replace({ query: { tab: tabActiveKey.value } });
-    }
-  }, 100);
-});
+watch(() => router.currentRoute.value.query.tab, tab => {
+  tabActiveKey.value = ['account', 'coin', 'privacy', 'role', 'security'].includes(String(tab)) ? String(tab) : 'account';
+}, { immediate: true });
 
 const store = useStore(),
   persistStore = usePersistStore();
@@ -205,6 +199,9 @@ const passwordRules = {
       </a-tab-pane>
       <a-tab-pane key="role" title="角色">
         <RoleSetting />
+      </a-tab-pane>
+      <a-tab-pane key="security" title="安全">
+        <SecuritySetting />
       </a-tab-pane>
     </a-tabs>
   </a-layout>

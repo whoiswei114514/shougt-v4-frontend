@@ -114,6 +114,12 @@ const columns = [
     tooltip: true,
   },
   {
+    title: '置顶',
+    dataIndex: 'pinned',
+    width: 75,
+    render: ({ record }: { record: any }) => record.pinned ? '已置顶' : '—',
+  },
+  {
     title: '更新时间',
     dataIndex: 'edit_time',
     width: 150,

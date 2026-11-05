@@ -4,9 +4,7 @@ import UserPicker from '../../components/UserPicker.vue';
 import { Axios, errorHandler } from '../../axios';
 import { Message } from '@arco-design/web-vue';
 import { UserBrief } from '../../types';
-import { useStore } from '../../stores';
 
-const store = useStore();
 
 const generalSettings = reactive({
     allow_show_in_list: false,
@@ -44,23 +42,6 @@ const saveGeneral = () => {
     });
 };
 
-const loadingYunxiao = ref(true),
-  yunxiaoSettings = reactive({
-    password: '',
-    save_password: false,
-    show_timetable_public: false,
-  });
-
-if (store.user?.yunxiao?.id) {
-  Axios.get(`/yunxiao/${store.user.yunxiao.id}/`)
-    .then(res => {
-      yunxiaoSettings.save_password = Boolean(res.data.password);
-      yunxiaoSettings.show_timetable_public = res.data.show_timetable_public;
-    })
-    .finally(() => {
-      loadingYunxiao.value = false;
-    });
-}
 </script>
 
 <template>

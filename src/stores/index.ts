@@ -7,6 +7,7 @@ import {
   Authorization,
   Permission,
   Quota,
+  SecurityState,
 } from '../types';
 
 export const useStore = defineStore('__default__', {
@@ -18,17 +19,24 @@ export const useStore = defineStore('__default__', {
     authorization: null as Authorization | null,
     roleId: null as number | null,
     unreadNotificationCount: 0 as number,
+    captcha_required: true,
     captcha_expire_time: 0 as number,
     signed: false as boolean,
+    security: null as SecurityState | null,
+    watermark_id: '',
   }),
   actions: {
     logout() {
+      this.user = null;
+      this.security = null;
+      this.watermark_id = '';
       this.authorization = null;
       this.roleId = null;
       this.quota = {} as Quota;
       this.permission = {} as Permission;
       this.roles = [] as RoleBrief[];
       this.captcha_expire_time = 0;
+      this.captcha_required = true;
       this.signed = false;
     },
   },
@@ -101,8 +109,9 @@ export const sharedFunctions = {
   setRoleId(id: number) {
     const store = useStore();
     store.roleId = id;
-    const persistStore = usePersistStore();
-    persistStore.roleId = id;
+    if (store.security?.session_scope !== 'impersonation') {
+      usePersistStore().roleId = id;
+    }
   },
   logout() {
     const store = useStore();
@@ -113,7 +122,7 @@ export const sharedFunctions = {
   checkExpired() {
     const store = useStore();
     const persistStore = usePersistStore();
-    const time = Math.round(Date.now() / 1000) - 60;
+    const time = Math.floor(Date.now() / 1000);
     if (store.authorization !== null) {
       if (store.authorization.payload.exp < time) {
         store.logout();
@@ -141,6 +150,7 @@ export const sharedFunctions = {
   // @ts-ignore
   showNotification(onClose: () => void) {},
   checkCaptcha(): Promise<boolean | void> {
+    if (!useStore().captcha_required) return Promise.resolve(true);
     return new Promise<boolean>((_resolve, reject) => {
       reject(false);
     });

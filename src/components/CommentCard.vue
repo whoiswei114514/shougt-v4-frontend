@@ -33,6 +33,7 @@ defineProps({
     <Comment
       root
       :post-owner="post.author"
+      :share-with="post.share_with"
       :post-id="post.id"
       show
       :allow-comment="post.allow_comment"

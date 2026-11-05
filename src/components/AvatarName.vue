@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RoleCertifications from "./RoleCertifications.vue";
 import { PropType } from 'vue';
 import { RoleBrief } from '../types';
 import Avatar from './Avatar.vue';
@@ -36,7 +37,7 @@ defineProps({
       }"
       :class="['text-container', role?.id ? 'pointer link' : '']"
     >
-      {{ role == null ? '匿名角色' : role?.name }}
+      {{ role == null ? '匿名角色' : role?.name }}<RoleCertifications :role="role" />
       <a-tooltip :content="`认证信息：${role.verify}`" v-if="role?.verify">
         <IconCheckCircleFill />
       </a-tooltip>

@@ -69,6 +69,7 @@ const descriptionData = computed(() =>
         { label: '编辑时间', value: formatDatetime(data.value.edit_time) },
         { label: '点赞数', value: data.value.like_count },
         { label: '评论数', value: data.value.comment_count },
+        { label: '置顶状态', value: data.value.pinned ? '已置顶' : '未置顶' },
         { label: '已删除', value: data.value.deleted ? '是' : '否' },
       ]
     : []
@@ -148,6 +149,20 @@ const toPost = () => {
   else if (data.value.type === PostType.article)
     router.push({ name: 'article', params: { id: data.value.id } });
 };
+
+const pinLoading = ref(false);
+const setPinned = async (value: boolean) => {
+  pinLoading.value = true;
+  try {
+    const response = await Axios.post(`/admin/post/${data.value.id}/pin/`, { pinned: value });
+    data.value.pinned = response.data.pinned;
+    Message.success(response.data.msg);
+  } catch (error) {
+    errorHandler(error);
+  } finally {
+    pinLoading.value = false;
+  }
+};
 </script>
 
 <template>
@@ -203,7 +218,7 @@ const toPost = () => {
           }"
         >
           <a-image
-            :src="`https://image.qaguatian.com/${image.key}`"
+            :src="`https://image.shouguatian.com/${image.key}`"
             v-for="image in versionData.image_items"
             :key="image.id"
           />
@@ -230,6 +245,16 @@ const toPost = () => {
     auto-label-width
     :disabled="!store.permission.admin_forum"
   >
+    <a-form-item label="置顶帖子">
+      <a-switch
+        :model-value="data.pinned"
+        :loading="pinLoading"
+        :disabled="loading || !data.id || Boolean(data.deleted && !data.pinned)"
+        aria-label="置顶帖子"
+        @change="value => setPinned(Boolean(value))"
+      />
+      <template #extra>开启后优先展示，保留原有可见范围和审核状态。</template>
+    </a-form-item>
     <a-typography-text style="margin-bottom: 1em; font-size: 1.1em">
       管理员修改审核状态后，会将最新版本设置为管理员设置的审核状态，并将最新版本更新为帖子目前的展示版本。这可能会导致原本能够正常显示旧版本的帖子被隐藏。
     </a-typography-text>

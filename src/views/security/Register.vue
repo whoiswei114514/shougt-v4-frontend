@@ -1,0 +1,18 @@
+<script setup lang="ts">
+import { computed, onBeforeUnmount, reactive, ref } from 'vue';
+import { Message } from '@arco-design/web-vue';
+import { useRouter } from 'vue-router';
+import Axios from '../../axios';
+import { saveUserInfo } from '../../scripts/userInfo';
+import { securityError } from '../../scripts/webauthn';
+import '../../styles/auth.scss';
+const router=useRouter(), busy=ref(false), sending=ref(false), cooldown=ref(0), suffixes=ref(['edu.cn','edu','ac.uk']);
+const form=reactive({username:'',email:'',password:'',confirmation:'',code:'',challenge_id:''});
+let timer:ReturnType<typeof setInterval>;
+onBeforeUnmount(()=>clearInterval(timer));
+Axios.get('/security/config/').then(({data})=>suffixes.value=data.education_suffixes).catch(()=>{});
+const group=computed(()=>{const domain=form.email.toLowerCase().trim().split('@')[1];if(domain==='st.shou.edu.cn')return '海大学生';if(domain==='shou.edu.cn'||domain?.endsWith('.shou.edu.cn'))return '海大教师';if(suffixes.value.some(s=>domain?.endsWith('.'+s)))return '外校人士';return '通过教育邮箱确认校园身份';});
+async function sendCode(){sending.value=true;try{const {data}=await Axios.post('/security/register-code/',{email:form.email});form.challenge_id=data.challenge_id;cooldown.value=60;clearInterval(timer);timer=setInterval(()=>{cooldown.value--;if(!cooldown.value)clearInterval(timer);},1000);Message.success('验证码已发送，10 分钟内有效');}catch(error){Message.error(securityError(error));}finally{sending.value=false;}}
+async function register(){if(form.password!==form.confirmation)return Message.warning('两次密码不一致');if(!form.challenge_id)return Message.warning('请先获取邮箱验证码');busy.value=true;try{const {data}=await Axios.post('/security/register/',{username:form.username,email:form.email,password:form.password,code:form.code,challenge_id:form.challenge_id});saveUserInfo(data);Message.success('欢迎来到 shou瓜田');await router.replace('/settings/?tab=security');}catch(error){Message.error(securityError(error));}finally{busy.value=false;}}
+</script>
+<template><div class="auth-layout"><section class="auth-art"><div><div class="brand-mini"><img src="/logo.svg" alt="">shou瓜田</div><h2>从一封校园邮件，<br>开始新的对话。</h2><p>同学、老师，还有远方的校园朋友。<br>用教育邮箱找到属于你的身份。</p></div><div class="auth-art-footer"><p class="auth-eyebrow">A PLACE FOR CAMPUS VOICES</p><p>st.shou.edu.cn · 海大学生<br>shou.edu.cn 及其他子域 · 海大教师<br>其他受支持的教育邮箱 · 外校人士</p></div></section><section class="auth-panel"><p class="auth-step">JOIN THE COMMUNITY / 01</p><h1>注册 shou瓜田</h1><p class="auth-subtitle">支持 {{suffixes.join('、')}} 教育邮箱。实名与进阶认证仅在申请管理岗位时需要。</p><a-form :model="form" layout="vertical" @submit="register"><a-form-item label="登录账号"><a-input v-model="form.username" :max-length="150" autocomplete="username" placeholder="设置一个唯一账号" /></a-form-item><a-form-item label="教育邮箱"><a-input v-model="form.email" inputmode="email" autocomplete="email" placeholder="name@st.shou.edu.cn" /></a-form-item><div class="auth-tip">{{group}}</div><a-form-item label="邮箱验证码"><div class="send-code"><a-input v-model="form.code" :max-length="6" autocomplete="one-time-code" placeholder="六位验证码" /><a-button :loading="sending" :disabled="cooldown>0" @click="sendCode">{{cooldown?`${cooldown} 秒`:'获取验证码'}}</a-button></div></a-form-item><a-form-item label="密码"><a-input-password v-model="form.password" autocomplete="new-password" placeholder="至少 8 位，避免常见密码" /></a-form-item><a-form-item label="确认密码"><a-input-password v-model="form.confirmation" autocomplete="new-password" placeholder="再次输入密码" /></a-form-item><a-button type="primary" html-type="submit" class="auth-primary" :loading="busy">创建账号</a-button></a-form><div class="auth-footer"><span>已有账号？<RouterLink to="/login/">立即登录</RouterLink></span><span>邮箱验证码验证</span></div></section></div></template>

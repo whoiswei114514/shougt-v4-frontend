@@ -1,0 +1,14 @@
+<script setup lang="ts">
+import { onMounted, ref } from 'vue';
+import { Message } from '@arco-design/web-vue';
+import { useRoute } from 'vue-router';
+import Axios from '../../axios';
+import { getAssertion, securityError } from '../../scripts/webauthn';
+import '../../styles/auth.scss';
+const route=useRoute(),operation=ref<any>(null),busy=ref(false),approved=ref(false),consoleOrigin=ref('');
+const labels:Record<string,string>={list_users:'查找用户',assign_roles:'调整管理角色',nominate:'提名管理员',user_detail:'查看用户档案',password_hash:'查看密码 Hash 与 Salt',update_user:'修改用户基础信息',set_exemption:'设置限时登录许可',list_logs:'查询管理日志',list_verifications:'查询实名申请',review_verification:'通过实名与进阶认证',get_contact:'查看审核联系方式',set_contact:'修改审核联系方式',impersonate:'发起临时代登录',bind_certificate:'登记客户端证书'};
+const fieldLabels:Record<string,string>={user_id:'目标用户 ID',roles:'拟分配角色',reason:'操作理由',days:'许可天数',search:'搜索内容',updates:'修改内容',verification_id:'认证申请',contact:'联系方式',real_name_confirmed:'已确认实名',certificate_pem:'待登记证书',after:'用户分页',before:'日志分页'};
+async function approve(){busy.value=true;try{const base=`/security/operation/${route.query.operation}/`;const {data}=await Axios.post(base+'begin/');await Axios.post(base+'finish/',await getAssertion(data));approved.value=true;window.opener?.postMessage({operation_id:route.query.operation,approved:true},consoleOrigin.value);}catch(error){Message.error(securityError(error));}finally{busy.value=false;}}
+onMounted(async()=>{try{if(!/^[0-9a-f-]{36}$/.test(String(route.query.operation)))throw new Error('操作编号无效');const [response,config]=await Promise.all([Axios.get(`/security/operation/${route.query.operation}/`),Axios.get('/security/config/')]);operation.value=response.data;consoleOrigin.value=new URL(config.data.console_url).origin;}catch(error){Message.error(securityError(error));}});
+</script>
+<template><div class="security-layout" style="max-width:760px"><section class="security-card"><span class="security-kicker">PRIVILEGED ACTION / FIDO2</span><h1>确认这一次管理操作</h1><p class="security-muted">请核对操作内容，并使用本次主站登录的同一把安全密钥确认。</p><template v-if="operation && !approved"><h2>{{labels[operation.action] || operation.action}}</h2><a-descriptions :column="1" bordered><a-descriptions-item v-for="(value,key) in operation.payload" :key="key" :label="fieldLabels[String(key)] || String(key)"><span style="overflow-wrap:anywhere">{{typeof value==='object'?JSON.stringify(value):String(value).slice(0,500)}}</span></a-descriptions-item></a-descriptions><div style="height:24px" aria-hidden="true"></div><a-button type="primary" long :loading="busy" @click="approve">验证安全密钥并授权</a-button></template><a-result v-else-if="approved" status="success" title="操作已授权" subtitle="管理站将完成此次操作，你可以关闭此窗口。"/><a-spin v-else/></section></div></template>

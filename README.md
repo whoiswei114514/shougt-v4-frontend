@@ -1,10 +1,57 @@
-# Vue 3 + TypeScript + Vite
+# shou瓜田前端
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+Vue 3、TypeScript、Arco Design 与 Vite。延续论坛原有布局，更新 shou 品牌和 SVG 标识，并增加教育邮箱注册、安全密钥 / 通行密钥登录、安全中心及管理操作确认页面。
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+在 VS Code 中打开上一级 `shougt.code-workspace`，推荐插件已列于 `.vscode/extensions.json`。使用任务菜单启动开发、构建或直接执行：
 
-## If you want use production server as the dev backend
+```powershell
+npm ci
+npm run dev
+npm run build
+```
 
-- Please install a browser extension to modify cookies
-- Add the cookie to the dev site: `PROD_BACKEND`, you can use any value.
+依赖以 `package.json` 和 `package-lock.json` 为准，使用 npm 11.12.1 与 `npm ci` 复现；不再维护旧的 pnpm 锁文件。缓存完整时可加 `--offline --no-audit --no-fund` 离线安装。
+
+开发前端为 `http://localhost:15173`，`/api` 转发到 `http://127.0.0.1:18000`。生产由同源代理将 `/api/` 转给 Django 并移除前缀。设置主站 WebAuthn RP / Origin 后才能使用正式密钥，localhost 测试凭据不通用于生产。
+
+独立特权管理站不在本项目的 `/admin` 路由中。其独立前端、独立后端和整站客户端证书 TLS 位于相邻 `shougt-sa`。主站的 `/security/approve` 只负责用本次主站登录的密钥批准指定单次操作。代登录只能由该独立站的超级管理员发起，主站 `/security/impersonate` 兑换短期票据。
+
+`public/logo.svg` 和 `src/assets/logo*.svg` 是新版矢量标识。`npm run generate-pwa-assets` 用 Resvg 生成各尺寸 PNG / ICO。原有登记信息不冒用：复制 `.env.example` 为 `.env.local`，填入本部署真实的备案号。媒体地址在 `src/consts` 中配置，需对应本站存储。
+
+安全中心位于“设置”的第五项“安全”；`/security/` 兼容跳转到 `/settings/?tab=security`。登录页仅保留登录表单，已移除钥匙动画和左侧宣传内容；管理操作确认也不再显示该动画。校友墙使用上海海洋大学的说明文案。账号权限变化导致会话失效时，前端清理旧凭据并返回登录。
+
+五项设置共用内容宽度；安全页采用与账号设置一致的小标题、单栏表单和分隔线，手机上表单标签纵向排列。密钥等级、教育邮箱、二次验证器及进阶认证功能保持独立分区。
+
+论坛管理员和超级管理员可在“管理 → 帖子管理 → 编辑 → 管理员操作”切换“置顶帖子”，列表显示置顶状态。置顶保留原有审核状态和可见范围，操作记录到管理日志。评论置顶仍在评论旁的 `⋮` 菜单，由发帖角色操作，仅支持一级评论。
+
+管理用户列表“创建用户”包含用户名、初始密码、教育邮箱与可选姓名，直接创建，不再显示或请求验证码。学号由后端按“院校缩写-邮箱前缀”生成；新用户保持普通权限、邮箱和实名未认证，登录后可验证邮箱。管理员任命仍在独立应用处理。安全中心的进阶认证移除手填实名，提示设置教育邮箱发件人称呼，并显示收到邮件后确认的姓名和派生学号。
+
+管理页面的显示文本、菜单和弹窗均附加零宽会话标记，复制部分文本也会携带标记。背景包含实名明水印、空间暗水印和频域水印，退出管理区域后清理。输入框值与提交数据保持原样。主站实现位于 `src/scripts/adminWatermark.ts`；运行 `node scripts/build-admin-watermark.mjs` 同步生成 Django admin 静态脚本。独立管理应用维护自己的实现。
+
+当前标识按用户提供的图片转换为纯 SVG 路径，保留人物、校名、海浪和 1912，未嵌入位图。站点图标只裁去截图外部留白和黑边。它是保留原始像素细节的自动路径转换，放大精度受参考图分辨率限制。
+
+## 浏览器联合测试
+
+主站后端和 `shougt-sa` 均需先安装各自 Python `.venv` 依赖。当前测试使用 Windows 系统 Edge；其他环境可在 `playwright.config.ts` 调整浏览器渠道。无需真实教育邮箱、实体密钥或生产数据库。
+
+```powershell
+npm run test:e2e
+```
+
+测试创建独立 SQLite、测试 CA / subCA / 客户端证书与虚拟 WebAuthn 密钥；覆盖邮箱 OTP 注册、实际浏览器签名、mTLS 特权站逐次 FIDO2 授权、会话撤销、管理创建用户和水印。只访问本机高端口。默认临时文件在 `.test-work/ui`，可用 `SHOUGT_UI_WORK` 修改；`SHOUGT_UI_PREVIEWS` 设置截图保存目录。测试证书和账号不能部署到生产，交互预览不注入虚拟认证器。
+
+认证页已检查桌面与手机宽度。原 GPLv3 许可证保留。
+
+文章阅读、编辑预览和 Mermaid 输出使用明确的 DOMPurify 清洗入口，过滤脚本事件、危险链接、嵌入页面等不可信 HTML；普通 Markdown 排版保留。角色外链仅打开 HTTP/HTTPS，隔离新页面的 opener。用户管理中的密码输入已遮蔽，非超级管理员无法使用管理账号的密码重置控件。隐私限制下的既有用户引用显示为用户编号。
+
+`tests/e2e/redteam.spec.ts` 在隔离数据库中模拟 HTML 注入、令牌及角色伪造、越权任命、缺失客户端证书、伪造登录票据、跨站请求、超长请求和路径探测。测试只使用回环高端口，不接触真实账号的密码、密钥或认证器种子。
+
+本地审计结果与验收边界见相邻后端的 `SECURITY-AUDIT.md`；常规浏览器套件与独立金色认证配置合计覆盖 16 项。深层嵌套令牌和 JSON 请求也通过实际 HTTP 代理验证，不再返回 500。
+
+安全中心按后端返回的本次登录凭据等级显示金色认证，悬停、聚焦或点击可查看 FIPS / CC 等具体等级；支持深色模式和减少动画偏好。只有已核验达到规定等级的凭据显示金色，普通密钥保持绿色。
+
+管理认证固定显示在注册主角色，安全中心的展示开关仅控制主角色实名信息，与角色设置中的“展示实名信息”同步。匿名角色和其他个人角色不会继承管理员标记。
+
+金色认证浏览器测试使用独立的测试证明资料：设置 `SHOUGT_UI_CERTIFIED_KEY=1` 后运行 `npm run test:e2e -- --grep "certified key shows gold"`。测试资料、证书和截图中的等级只用于验证显示逻辑，不修改交互预览中真实密钥的认证状态。
+
+代登录保存在当前标签页的会话存储中。进入、切换角色、刷新和结束代登录均保留超管原有的长期登录状态、当前角色与“记住登录”选项；目标账号仍无法修改安全信息或进入管理功能。浏览器测试覆盖自动跳转、弹窗拦截后的手动入口和上述会话隔离。

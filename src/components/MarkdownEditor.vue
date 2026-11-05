@@ -6,6 +6,7 @@ import { isMobile } from '../consts/isMobile';
 import { usePersistStore } from '../stores';
 import { uploadImage } from '../scripts/uploadImage';
 import { Message } from '@arco-design/web-vue';
+import { sanitizeMarkdown, sanitizeMermaid } from '../scripts/sanitizeMarkdown';
 
 const persistStore = usePersistStore();
 
@@ -71,7 +72,7 @@ const handleUploadImg = async (
         onSuccess(image) {
           callback([
             {
-              url: `https://image.qaguatian.com/${image.key}/webp`,
+              url: `https://image.shouguatian.com/${image.key}/webp`,
               alt: image.name,
               title: '',
             },
@@ -94,6 +95,8 @@ const handleUploadImg = async (
     cropperJs="https://cdn.staticfile.org/cropperjs/1.5.12/cropper.min.js"
     cropperCss="https://cdn.staticfile.org/cropperjs/1.5.12/cropper.min.css"
     :modelValue="content"
+    :sanitize="sanitizeMarkdown"
+    :sanitizeMermaid="sanitizeMermaid"
     :preview="!isMobile"
     @update:modelValue="$emit('update:content', $event)"
     :toolbars="isMobile ? toolbarsMobile : toolbarsComputer"

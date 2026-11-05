@@ -78,7 +78,11 @@ const roleData = ref({} as RoleFull),
     // },
     {
       label: '认证信息',
-      value: computed(() => roleData.value.verify || '-'),
+      value: computed(() => [roleData.value.verify, ...roleData.value.badges?.map(badge => badge.label) || []].filter(Boolean).join('、') || '-'),
+    },
+    {
+      label: '注册主角色',
+      value: computed(() => roleData.value.is_primary ? '是' : '否'),
     },
     {
       label: '所有者',
@@ -115,6 +119,8 @@ const updateLocalInfo = (data: any) => {
         role.avatar = data.avatar;
         role.name = data.name;
         role.verify = data.verify;
+        role.badges = data.badges;
+        role.is_primary = data.is_primary;
         break;
       }
     }
@@ -158,9 +164,9 @@ watch(
 const handleAvatarUpload = (option: RequestOption) => {
   Message.info('正在上传，请耐心等待...');
   uploadImage(option, 'avatar').then((data: any) => {
-    avatarFile.value.url = `https://image.qaguatian.com/${data.key}/avatar`;
+    avatarFile.value.url = `https://image.shouguatian.com/${data.key}/avatar`;
     avatarFile.value.uid = data.id;
-    editRoleForm.avatar = `https://image.qaguatian.com/${data.key}/avatar`;
+    editRoleForm.avatar = `https://image.shouguatian.com/${data.key}/avatar`;
     saveRole({ values: editRoleForm, errors: undefined });
   });
   return {} as UploadRequest;
@@ -271,14 +277,16 @@ const disableEdit = computed(() => {
           show-word-limit
         />
       </a-form-item>
-      <a-form-item field="show_user_info" label="展示身份信息">
-        <a-switch v-model="editRoleForm.show_user_info" />
+      <a-form-item field="show_user_info" label="展示实名信息">
+        <a-switch v-model="editRoleForm.show_user_info" aria-label="展示实名信息" />
+        <template #extra v-if="roleData.is_primary">管理认证始终显示在主角色，实名信息可单独隐藏。</template>
       </a-form-item>
       <a-form-item field="show_like" label="展示点赞内容">
         <a-switch v-model="editRoleForm.show_like" />
       </a-form-item>
       <a-form-item field="is_shared" label="共享角色">
-        <a-switch v-model="editRoleForm.is_shared" />
+        <a-switch v-model="editRoleForm.is_shared" :disabled="roleData.is_primary" />
+        <template #extra v-if="roleData.is_primary">主角色用于个人身份，使用其他角色与同学共享。</template>
       </a-form-item>
       <a-form-item
         field="members_id"
@@ -354,6 +362,7 @@ const disableEdit = computed(() => {
             保存
           </a-button>
           <a-popconfirm
+            v-if="!roleData.is_primary"
             content="你确认要删除该角色吗？"
             @ok="deleteRole"
             type="warning"

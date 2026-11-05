@@ -26,6 +26,7 @@ export default defineComponent({
       type: Number,
       required: false,
     },
+    shareWith: { type: Number, default: 0 },
     postOwner: {
       type: Object as PropType<Role>,
       default: null,
@@ -248,7 +249,8 @@ export default defineComponent({
       }
       if (
         store.currentRole?.is_private &&
-        this.postOwner?.id !== store.roleId
+        this.postOwner?.id !== store.roleId &&
+        !(this.shareWith === -3 && store.roles.some(role => role.id === this.postOwner?.id))
       ) {
         return 2;
       }
@@ -565,6 +567,7 @@ export default defineComponent({
         :postId="postId"
         :data="comment.children"
         :postOwner="postOwner"
+        :share-with="shareWith"
         :bold="bold"
       />
 

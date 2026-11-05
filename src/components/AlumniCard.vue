@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Alumni } from '../types/alumni';
-import { PropType, ref } from 'vue';
+import { PropType } from 'vue';
 
 defineProps({
   alumni: {

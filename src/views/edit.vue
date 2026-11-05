@@ -98,7 +98,7 @@ const publishLoading = ref(false),
       .then(res => {
         imageFileList.value = res.data.image_items.map((item: any) => ({
           uid: item.id,
-          url: `https://image.qaguatian.com/${item.key}/webp`,
+          url: `https://image.shouguatian.com/${item.key}/webp`,
           response: {
             id: item.id,
           },
@@ -248,7 +248,7 @@ if (route.query.id) {
           image-preview
           :response-url-key="
             fileItem =>
-              `https://image.qaguatian.com/${fileItem.response?.key}/webp`
+              `https://image.shouguatian.com/${fileItem.response?.key}/webp`
           "
           draggable
           multiple

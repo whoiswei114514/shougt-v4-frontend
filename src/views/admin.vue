@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SecurityWatermark from '../components/SecurityWatermark.vue';
 import { isMobile } from '../consts/isMobile';
 import { useRoute } from 'vue-router';
 import { useStore } from '../stores';
@@ -9,13 +10,6 @@ const store = useStore();
 </script>
 
 <template>
-  <a-watermark
-    :gap="[50, 50]"
-    :alpha="0.5"
-    :content="
-      store.loggedIn ? [store.user?.real_name as string, store.user?.username as string] : ''
-    "
-  >
     <a-layout class="admin-layout">
       <a-typography-title :heading="3" v-if="!isMobile && route.meta.title">
         {{ route.meta.title }}
@@ -23,7 +17,7 @@ const store = useStore();
 
       <RouterView />
     </a-layout>
-  </a-watermark>
+  <SecurityWatermark :marker="store.watermark_id" :actor="`${store.user?.real_name || ''} · ${store.user?.username || ''}`" />
 </template>
 
 <style lang="scss" scoped>

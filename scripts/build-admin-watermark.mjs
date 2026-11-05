@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import ts from 'typescript';
+const front = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const source = fs.readFileSync(path.join(front, 'src/scripts/adminWatermark.ts'), 'utf8').replace('export function', 'function');
+const js = ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTarget.ES2020, module:ts.ModuleKind.None}}).outputText;
+const launch = `const host=document.getElementById('shou-watermark');if(host)installAdminWatermark(host.dataset.marker || '',host.dataset.actor || '');`;
+const output = path.resolve(front, '../shougt-v0-backend/gt_admin/static/gt_admin/watermark.js');
+fs.writeFileSync(output, `// Generated from the main site's adminWatermark.ts by scripts/build-admin-watermark.mjs.\n(()=>{\n${js}\n${launch}\n})();\n`);
+console.log('Updated Django admin watermark runtime.');

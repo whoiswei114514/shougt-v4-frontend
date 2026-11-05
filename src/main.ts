@@ -15,8 +15,7 @@ const pinia = createPinia();
 pinia.use(piniaPluginPersistedstate);
 
 const app = createApp(App);
-app.use(router).use(pinia);
-app.mount('#app');
+app.use(pinia);
 
 // Arco组件初始化
 
@@ -24,7 +23,12 @@ Notification._context = app._context;
 Message._context = app._context;
 // 用户信息获取
 
-initUserInfo();
+void (async () => {
+  await initUserInfo();
+  app.use(router);
+  await router.isReady();
+  app.mount('#app');
+})();
 setInterval(() => {
   initUserInfo();
 }, 1000 * 60 * 5);

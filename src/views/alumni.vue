@@ -137,9 +137,9 @@ const avatarFile = ref({
   handleAvatarUpload = (option: RequestOption) => {
     Message.info('正在上传，请耐心等待...');
     uploadImage(option, 'alumni_avatar').then((data: any) => {
-      avatarFile.value.url = `https://image.qaguatian.com/${data.key}/avatar`;
+      avatarFile.value.url = `https://image.shouguatian.com/${data.key}/avatar`;
       avatarFile.value.uid = data.id;
-      createForm.avatar = `https://image.qaguatian.com/${data.key}/avatar`;
+      createForm.avatar = `https://image.shouguatian.com/${data.key}/avatar`;
       submitCreate(() => {});
     });
     return {} as UploadRequest;
@@ -256,18 +256,10 @@ const showAvatar = ref(false);
 <template>
   <div class="alumni">
     <h1>校友墙</h1>
-    <a-typography-paragraph
-      style="font-size: 1.1em"
-      :ellipsis="{
-        rows: 1,
-        expandable: true,
-      }"
-    >
-      青岛中学和金家岭学校发展至今，已经有许多分布于世界各地的优秀毕业生。这其中的许多人乐于与其它同学个性化地分享经验并提供一定的帮助。然而一直以来，学生与学长、学姐之间缺少相识和沟通的途径。
+    <a-typography-paragraph style="font-size: 1.1em; line-height: 1.9; color: var(--color-text-2)">
+      认识上海海洋大学的校友，交流学习、升学和工作经验。
       <br />
-      因此，我们希望能为青中与金家岭的校友文化建设贡献一份力量。建立校友墙是这一计划其中的重要一步。
-      <br />
-      我们将在此页面展示校友们的相关信息和联系方式。拥有QA瓜田账号的同学可以随时创建、修改和删除自己的信息。由于我们难以联系到往届所有校友，我们将在审核后授予部分同学为他人创建条目的权限。在为他人创建时，创建人应确保信息真实并取得本人同意。
+      登录 shou瓜田后，可以提交或更新自己的校友资料。联系方式自愿填写，请仅提供愿意公开的信息；代他人提交资料须先取得本人同意。
     </a-typography-paragraph>
 
     <a-divider />
@@ -282,7 +274,7 @@ const showAvatar = ref(false);
       <a-input-search
         :size="isMobile ? 'medium' : 'large'"
         style="max-width: 320px; width: 50vw"
-        placeholder="搜索"
+        placeholder="搜索校友姓名或经历"
         search-button
         v-model="search.search"
         @search="writeToQuery(true)"
@@ -293,7 +285,7 @@ const showAvatar = ref(false);
         @click="showCreateModal = true"
         v-if="store.loggedIn"
       >
-        创建
+        添加校友资料
       </a-button>
     </div>
 

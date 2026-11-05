@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RoleCertifications from "./RoleCertifications.vue";
 import router from '../router';
 import { Role } from '../types';
 import Avatar from './Avatar.vue';
@@ -44,7 +45,7 @@ defineProps<{
               color: role?.verify ? 'var(--verify-color)' : '',
             }"
           >
-            {{ role?.name }}
+            {{ role?.name }}<RoleCertifications :role="role" />
             <a-tooltip
               :content="`认证信息：${role.verify}`"
               v-if="role?.verify"

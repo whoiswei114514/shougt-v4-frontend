@@ -3,6 +3,7 @@ import { MdPreview, Themes } from 'md-editor-v3';
 import 'md-editor-v3/lib/preview.css';
 import '../styles/markdown.css';
 import { usePersistStore } from '../stores';
+import { sanitizeMarkdown, sanitizeMermaid } from '../scripts/sanitizeMarkdown';
 
 const persistStore = usePersistStore();
 
@@ -15,6 +16,8 @@ defineProps({
   <MdPreview
     previewOnly
     :modelValue="content"
+    :sanitize="sanitizeMarkdown"
+    :sanitizeMermaid="sanitizeMermaid"
     :theme="persistStore.currentTheme as Themes"
   />
 </template>

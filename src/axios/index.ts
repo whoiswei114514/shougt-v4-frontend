@@ -3,17 +3,7 @@ import { Message } from '@arco-design/web-vue';
 // import router from '../router';
 import { useStore, sharedFunctions } from '../stores';
 
-// The '/prod/api' proxy is only used during development when the 'PROD_BACKEND' cookie is present.
-// In production, the proxy is not used and '/api' is always the base URL.
-let baseUrl;
-if (
-  document.cookie.search('PROD_BACKEND') !== -1 &&
-  process.env.NODE_ENV !== 'production'
-) {
-  baseUrl = '/prod/api';
-} else {
-  baseUrl = '/api';
-}
+const baseUrl = '/api';
 
 export const Axios = axios.create({
   baseURL: baseUrl,
@@ -39,6 +29,27 @@ Axios.interceptors.request.use(config => {
     }
   }
   return config;
+});
+
+Axios.interceptors.response.use(response => response, error => {
+  if (error.response?.status === 401) {
+    const store = useStore();
+    const signature = store.authorization?.signature;
+    const sent = error.config?.headers?.Authorization;
+    // A delayed failure from an earlier session must not clear a new login.
+    if (signature && typeof sent === 'string' && sent.endsWith(`.${signature}`)) {
+      if (store.security?.session_scope === 'impersonation') store.logout();
+      else sharedFunctions.logout();
+      Message.warning('登录已失效，请重新登录');
+      void import('../router').then(({ default: router }) => {
+        const current = router.currentRoute.value;
+        if (current.meta.requireLogin) {
+          void router.replace({ name: 'login', query: { next: current.fullPath } });
+        }
+      });
+    }
+  }
+  return Promise.reject(error);
 });
 
 Axios.defaults.transformResponse = [

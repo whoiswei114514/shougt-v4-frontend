@@ -73,7 +73,7 @@ const save = () => {
     </a-form-item>
     <a-form-item label="认证信息">
       <a-input
-        v-model="data.verify /* @ts-ignore */"
+        :model-value="data.verify ?? ''" @update:model-value="value=>data.verify=value"
         placeholder="请输入认证信息"
       />
     </a-form-item>

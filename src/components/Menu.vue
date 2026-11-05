@@ -166,8 +166,10 @@ const finishSelectRole = () => {
   detectMenuKey();
 };
 
-const handleLogout = () => {
-  sharedFunctions.logout();
+const handleLogout = async () => {
+  try { await Axios.post('/security/logout/'); } catch (_) {}
+  if (store.security?.session_scope === 'impersonation') store.logout();
+  else sharedFunctions.logout();
   document.location.reload();
 };
 </script>
@@ -192,22 +194,20 @@ const handleLogout = () => {
       disabled
     >
       <div
+        class="menu-brand"
         :style="{
-          width: mode === 'vertical' ? '100%' : '80px',
-          height: '30px',
+          width: mode === 'vertical' ? '100%' : undefined,
         }"
       >
         <img
           v-if="getTheme() === 'dark'"
           src="../assets/logo-with-text-white.svg"
           alt="Logo"
-          style="width: auto; height: 40px; margin-top: 3px; margin: auto"
         />
         <img
           v-else
           src="../assets/logo-with-text.svg"
           alt="Logo"
-          style="width: auto; height: 40px; margin-top: 3px; margin: auto"
         />
       </div>
     </a-menu-item>
@@ -221,12 +221,6 @@ const handleLogout = () => {
       <template #icon>
         <IconApps />
       </template>
-      <a-menu-item key="route_drop">
-        <template #icon>
-          <IconShareAlt />
-        </template>
-        空投
-      </a-menu-item>
       <a-menu-item key="route_alumni">
         <template #icon>
           <IconBook />
@@ -276,7 +270,9 @@ const handleLogout = () => {
       >
         评论管理
       </a-menu-item>
-      <a-menu-item key="route_admin-image"> 图片管理 </a-menu-item>
+      <a-menu-item key="route_admin-image" v-if="store.permission.admin_image">图片管理</a-menu-item>
+      <a-menu-item key="route_admin-video" v-if="store.permission.admin_image">视频管理</a-menu-item>
+      <a-menu-item key="route_admin-file" v-if="store.permission.admin_file">文件仓管</a-menu-item>
     </a-sub-menu>
 
     <div :style="{ float: mode === 'horizontal' ? 'right' : undefined }">
@@ -383,7 +379,7 @@ const handleLogout = () => {
       size="large"
       v-if="store.roleId !== null"
       v-model:model-value="store.roleId"
-      @change="persistStore.roleId = store.roleId"
+      @change="value => sharedFunctions.setRoleId(Number(value))"
     >
       <template #label="{ data }">
         <a-space>
@@ -414,6 +410,19 @@ const handleLogout = () => {
 </template>
 
 <style lang="scss" scoped>
+.menu-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+
+  img {
+    display: block;
+    width: auto;
+    height: 40px;
+  }
+}
+
 .arco-menu-vertical {
   :deep(.arco-menu-item) {
     margin-bottom: 4px !important;

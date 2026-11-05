@@ -198,11 +198,11 @@ const showReport = () => {
         }"
       >
         <a-image
-          :src="`https://image.qaguatian.com/${image.key}/small`"
+          :src="`https://image.shouguatian.com/${image.key}/small`"
           v-for="image in moment.image_items"
           show-loader
           :preview-props="{
-            src: `https://image.qaguatian.com/${image.key}/webp`,
+            src: `https://image.shouguatian.com/${image.key}/webp`,
           }"
           :key="image.id"
         />
@@ -307,6 +307,7 @@ const showReport = () => {
             :post-id="moment.id"
             root
             :postOwner="moment.author"
+            :share-with="moment.share_with"
             :show="detail || showComment"
             :allow-comment="moment.allow_comment"
           />

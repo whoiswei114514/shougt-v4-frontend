@@ -1,18 +1,18 @@
 export const IdentityOptions = [
   { value: '学生', label: '学生' },
   { value: '教师', label: '教师' },
-  { value: '家长', label: '家长' },
+  { value: '外校人士', label: '外校人士' },
   { value: '其他', label: '其他' },
 ];
 
 export const School = {
-  qdzx: 'qa',
-  jjlxx: 'jjl',
+  shou: 'shou',
+  external: 'external',
 };
 
 export const SchoolLabel = {
-  [School.qdzx]: '青岛中学',
-  [School.jjlxx]: '金家岭学校',
+  [School.shou]: '上海海洋大学',
+  [School.external]: '其他院校',
 };
 
 export const SchoolOptions = Object.entries(SchoolLabel).map(
@@ -40,7 +40,7 @@ export const PostShareWith = {
 };
 
 export const PostShareWithLabel = {
-  [-3]: '仅我可见',
+  [-3]: '仅自己可见（角色成员）',
   [-2]: '仅学生可见',
   [-1]: '校内可见',
   [0]: '所有人可见',
@@ -98,7 +98,6 @@ export const ReviewStatusOptions = [
 export const ReportContentType = {
   post: 'post',
   comment: 'comment',
-  drop: 'drop',
   role: 'role',
   user: 'user',
 };
@@ -106,7 +105,6 @@ export const ReportContentType = {
 export const ReportContentTypeLabel = {
   post: '帖子',
   comment: '评论',
-  drop: '空投',
   role: '角色',
   user: '用户',
 };

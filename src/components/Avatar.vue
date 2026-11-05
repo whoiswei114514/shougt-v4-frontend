@@ -81,7 +81,7 @@ const handleClick = () => {
   <a-avatar
     v-if="role?.avatar || role === null"
     :size="size"
-    :image-url="role?.avatar || 'https://image.qaguatian.com/anonymous.jpg/avatar'"
+    :image-url="role?.avatar || 'https://image.shouguatian.com/anonymous.jpg/avatar'"
     @click="handleClick"
   >
     <template #trigger-icon v-if="edit || switchRole">

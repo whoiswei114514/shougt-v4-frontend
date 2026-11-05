@@ -7,6 +7,7 @@ import { useRoute } from 'vue-router';
 import router from './router';
 import { useStore } from './stores';
 import { sharedFunctions } from './stores';
+import Axios from './axios';
 const CaptchaModal = defineAsyncComponent(
   () => import('./components/CaptchaModal.vue')
 );
@@ -20,6 +21,9 @@ const NotificationList = defineAsyncComponent(
 
 const route = useRoute();
 const store = useStore();
+const endImpersonation = async () => {
+  try { await Axios.post('/security/logout/'); } finally { store.logout(); location.assign('/'); }
+};
 const goBack = () => {
   console.log(window.history.length);
   if (window.history.length > 1) {
@@ -64,7 +68,7 @@ onMounted(() => {
           v-else-if="route.meta.showHeader !== false"
           :style="{ height: 'var(--global-header-height)', padding: '10px 0' }"
           :title="route.meta.title as string"
-          :subtitle="(route.meta.subtitle ?? 'QA瓜田') as string"
+          :subtitle="(route.meta.subtitle ?? 'shou瓜田') as string"
           :show-back="route.meta.showBack !== false"
           @back="goBack"
         >
@@ -92,6 +96,10 @@ onMounted(() => {
               : 'var(--global-header-height)',
         }"
       >
+        <a-alert v-if="store.security?.session_scope === 'impersonation'" type="warning" style="margin:12px auto;max-width:1000px">
+          正在代登录 {{store.user?.username}}，操作将同时记录超管与目标账号。
+          <a-link @click="endImpersonation">结束代登录</a-link>
+        </a-alert>
         <div style="width: min(max(75vw, 1300px), 95vw); margin: 0 auto">
           <!-- <RouterView v-slot="{ Component }">
             <keep-alive>

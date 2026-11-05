@@ -38,7 +38,7 @@ const url = window.location.href;
       style="display: flex; justify-content: space-between; margin: 30px 10px"
     >
       <a-space direction="vertical" style="color: var(--color-text-3)">
-        <span style="margin-bottom: 5px">QA瓜田每日帖子分享</span>
+        <span style="margin-bottom: 5px">shou瓜田每日帖子分享</span>
         <span>长按识别二维码前往瓜田互动</span>
       </a-space>
       <VueQr

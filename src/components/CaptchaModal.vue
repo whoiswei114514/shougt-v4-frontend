@@ -45,7 +45,7 @@ watch(
 
 sharedFunctions.checkCaptcha = () => {
   return new Promise<boolean>((resolve, reject) => {
-    if (store.captcha_expire_time > Math.ceil(Date.now() / 1000)) {
+    if (!store.captcha_required || store.captcha_expire_time > Math.ceil(Date.now() / 1000)) {
       resolve(true);
     } else {
       visible.value = true;

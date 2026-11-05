@@ -1,0 +1,64 @@
+.security-settings {
+  width: 100%;
+  padding-bottom: 2em;
+
+  h5.arco-typography { margin: 0 0 16px; }
+  .security-muted { color: var(--color-text-3); line-height: 1.8; margin: 0 0 16px; }
+  > .arco-divider { margin: 32px 0; }
+  .security-notice { margin-bottom: 20px; }
+  .security-form { margin-top: 20px; }
+  .security-form .arco-form-item:last-child { margin-bottom: 0; }
+  .security-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 18px; }
+  .security-statuses { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 18px; }
+  .security-status {
+    padding: 7px 12px;
+    border-radius: 30px;
+    background: var(--color-fill-1);
+    font-size: 12px;
+    color: var(--color-text-3);
+    &.complete { background: rgba(22,132,91,.08); color: #16845b; }
+  }
+  .key-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--color-border-2);
+    .key-info { min-width: 0; display: grid; gap: 5px; overflow-wrap: anywhere; }
+    .key-name { color: var(--color-text-1); font-weight: 500; }
+    .key-detail { font-size: 12px; color: var(--color-text-3); line-height: 1.6; }
+    .arco-btn { flex-shrink: 0; }
+  }
+  .key-empty { padding: 16px 0; }
+  .security-email { margin: 0 0 8px; overflow-wrap: anywhere; }
+  .totp-setup {
+    width: fit-content;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 18px;
+    margin-top: 20px;
+    border: 1px solid var(--color-border-2);
+    border-radius: var(--border-radius-medium);
+    text-align: center;
+    img { display: block; max-width: 100%; margin: auto; }
+    p:last-child { margin-bottom: 0; color: var(--color-text-3); }
+  }
+  .totp-secret { font: 14px/1.6 Consolas, monospace; overflow-wrap: anywhere; margin: 14px 0; }
+  .challenge-mail {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--color-fill-1);
+    border: 1px solid var(--color-border-2);
+    border-radius: var(--border-radius-small);
+    padding: 16px;
+    max-height: 250px;
+    overflow: auto;
+    font: 12px/1.8 Consolas, monospace;
+  }
+  .advanced-details { margin: 16px 0; }
+  .security-contact { margin-top: 24px; }
+  .privacy-toggle { display: inline-flex; gap: 12px; align-items: center; }
+}
+
+body[arco-theme='dark'] .security-settings .security-status.complete { color: #67c8a1; background: #16845b26; }

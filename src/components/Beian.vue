@@ -1,22 +1,21 @@
 <script setup lang="ts">
-import { ref } from 'vue';
-const icp = ref('鲁ICP备2025169297号-1');
-if (window.location.hostname === 'qdzx.icu') {
-  icp.value = '鲁ICP备2020034769号-4';
-}
+const icp = import.meta.env.VITE_ICP_NUMBER || '';
+const policeNumber = import.meta.env.VITE_POLICE_NUMBER || '';
+const policeLabel = import.meta.env.VITE_POLICE_LABEL || '';
 const year = new Date().getFullYear();
 </script>
 
 <template>
   <a-space direction="vertical" class="beian" size="mini">
     <RouterLink :to="{ name: 'about' }">
-      <a-link> 版权所有 © {{ year }} QA瓜田 </a-link>
+      <a-link> 版权所有 © {{ year }} shou瓜田 </a-link>
     </RouterLink>
-    <a-link href="https://beian.miit.gov.cn/" target="_blank">
+    <a-link v-if="icp" href="https://beian.miit.gov.cn/" target="_blank">
       {{ icp }}
     </a-link>
     <a-link
-      href="https://beian.mps.gov.cn/#/query/webSearch?code=37021202001667"
+      v-if="policeNumber && policeLabel"
+      :href="`https://beian.mps.gov.cn/#/query/webSearch?code=${encodeURIComponent(policeNumber)}`"
       target="_blank"
     >
       <template #icon>
@@ -24,7 +23,7 @@ const year = new Date().getFullYear();
           <img src="../assets/gaba.png" style="width: auto; height: 1em" />
         </div>
       </template>
-      鲁公网安备37021202001667号
+      {{ policeLabel }}
     </a-link>
   </a-space>
 </template>

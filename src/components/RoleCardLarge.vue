@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RoleCertifications from "./RoleCertifications.vue";
 import isMobile from '../consts/isMobile';
 import { copyText } from '../scripts/copy';
 import { RoleFull } from '../types';
@@ -18,10 +19,15 @@ const emit = defineEmits(['follow']);
 
 const open = (url: string) => {
   url = url.trim();
-  if (!url.startsWith('http')) {
-    url = 'http://' + url;
+  if (!/^[a-z][a-z\d+.-]*:/i.test(url)) {
+    url = 'https://' + url;
   }
-  window.open(url, '_blank');
+  try {
+    const target = new URL(url);
+    if (['http:', 'https:'].includes(target.protocol)) {
+      window.open(target.href, '_blank', 'noopener,noreferrer');
+    }
+  } catch { /* Invalid profile links are not navigable. */ }
 };
 
 const visible = ref(false),
@@ -62,7 +68,7 @@ const getRoles = (_type?: 'followings__following' | 'followers__follower') => {
       <Avatar :size="128" :role="role" style="text-align: center" />
 
       <a-typography-title style="text-align: center" :heading="3">
-        {{ role?.name }}
+        {{ role?.name }}<RoleCertifications :role="role" />
       </a-typography-title>
 
       <a-space fill wrap style="justify-content: center; user-select: none">

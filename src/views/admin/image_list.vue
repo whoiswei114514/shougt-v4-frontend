@@ -92,7 +92,7 @@ const descriptionData = (record: any) => {
         h(
           Image,
           {
-            src: `https://image.qaguatian.com/${record.key}/webp`,
+            src: `https://image.shouguatian.com/${record.key}/webp`,
             width: 200,
           },
           '预览'

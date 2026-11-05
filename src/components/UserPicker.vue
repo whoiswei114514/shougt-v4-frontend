@@ -4,6 +4,9 @@ import { SelectOptionData } from '@arco-design/web-vue';
 import { Axios } from '../axios';
 import { UserBrief } from '../types';
 
+const userLabel = (user: UserBrief) => user.real_name
+  ? `${user.real_name}(${user.username})` : user.username || `用户 #${user.id}`;
+
 const props = defineProps({
   userId: {
     type: Number as PropType<number>,
@@ -22,7 +25,7 @@ const props = defineProps({
     default: false,
   },
   source: {
-    type: String as PropType<'yunxiao' | 'user'>,
+    type: String as PropType<'user'>,
     default: 'user',
   },
 });
@@ -30,7 +33,7 @@ const props = defineProps({
 const defaultOptions = computed(() => {
   const data = props.defaultOptions.map(
     (user: UserBrief): SelectOptionData => ({
-      label: `${user.real_name}(${user.username})`,
+      label: userLabel(user),
       value: user.id,
       disabled: user.disabled ?? false,
     })
@@ -63,7 +66,7 @@ const handleSearch = (value: string) => {
       for (const user of res.data.results) {
         if (!values.includes(user.id)) {
           options.value.push({
-            label: `${user.real_name}(${user.username})`,
+            label: userLabel(user),
             value: user.id,
           });
         }
@@ -87,7 +90,7 @@ const getFallbackOptions = (value: any): SelectOptionData => {
     for (const user of props.defaultOptions) {
       if (user.id === value) {
         return {
-          label: `${user.real_name}(${user.username})`,
+          label: userLabel(user),
           value,
           disabled: user.disabled ?? false,
         };

@@ -5,6 +5,9 @@ import 'nprogress/nprogress.css';
 import { Message } from '@arco-design/web-vue';
 
 const routes = [
+  { path: '/security/', name: 'security', redirect: { name: 'settings', query: { tab: 'security' } } },
+  { path: '/security/approve', name: 'security-approve', component: () => import('../views/security/Approve.vue'), meta: { title: '管理操作确认', requireLogin: true } },
+  { path: '/security/impersonate', name: 'security-impersonate', component: () => import('../views/security/Impersonate.vue'), meta: { title: '临时代登录', requireLogin: true } },
   {
     path: '/2026/',
     name: '2026',
@@ -56,26 +59,9 @@ const routes = [
     },
   },
   {
-    path: '/drop/',
-    name: 'drop',
-    component: () => import('../views/drop.vue'),
-    meta: {
-      title: '空投',
-    },
-  },
-  {
     path: '/register/',
     name: 'register',
-    component: () => import('../views/register.vue'),
-    meta: {
-      title: '注册',
-      requireUnLogin: true,
-    },
-  },
-  {
-    path: '/register-yunxiao/',
-    name: 'register-yunxiao',
-    component: () => import('../views/register-yunxiao.vue'),
+    component: () => import('../views/security/Register.vue'),
     meta: {
       title: '注册',
       requireUnLogin: true,
@@ -84,7 +70,7 @@ const routes = [
   {
     path: '/login/',
     name: 'login',
-    component: () => import('../views/login.vue'),
+    component: () => import('../views/security/Login.vue'),
     meta: {
       title: '登录',
       requireUnLogin: true,
@@ -102,7 +88,7 @@ const routes = [
   {
     path: '/email/',
     name: 'email',
-    component: () => import('../views/email.vue'),
+    component: () => import('../views/security/Email.vue'),
     meta: {
       title: '绑定邮箱',
       requireLogin: true,
@@ -113,6 +99,8 @@ const routes = [
     name: 'admin',
     component: () => import('../views/admin.vue'),
     children: [
+      { path: 'file/', name: 'admin-file', component: () => import('../views/admin/file_list.vue'), meta: { title: '文件仓管', permissions: ['admin_file'] } },
+      { path: 'video/', name: 'admin-video', component: () => import('../views/admin/video_list.vue'), meta: { title: '视频管理', permissions: ['admin_image'] } },
       {
         path: 'report/',
         name: 'admin-report',
@@ -192,7 +180,7 @@ const routes = [
         name: 'admin-image',
         component: () => import('../views/admin/image_list.vue'),
         meta: {
-          title: '图片列表',
+          title: '图片列表', permissions: ['admin_image'],
         },
       },
     ],
@@ -256,10 +244,6 @@ NProgress.configure({
 router.beforeEach((to, _from, next) => {
   NProgress.start();
   const store = useStore();
-  if (to.name === 'login' && to.query.admin_token) {
-    next();
-    return;
-  }
   if (to.meta.requireLogin && !store.loggedIn) {
     next({ name: 'login', query: { next: to.fullPath } });
     return;
@@ -269,6 +253,7 @@ router.beforeEach((to, _from, next) => {
       // @ts-ignore
       if (!store.permission[permission]) {
         Message.error('您没有权限访问此页面');
+        next({ name: 'security' });
         return;
       }
     }
@@ -286,9 +271,9 @@ router.afterEach((to, from) => {
     sharedFunctions.scrollTop();
   }
   if (to.meta.title) {
-    window.document.title = `${to.meta.title} - QA瓜田`;
+    window.document.title = `${to.meta.title} - shou瓜田`;
   } else {
-    window.document.title = 'QA瓜田';
+    window.document.title = 'shou瓜田';
   }
 });
 

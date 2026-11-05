@@ -1,14 +1,9 @@
 <script setup lang="ts">
-import { ref, h } from 'vue';
+import { ref, h, reactive, computed } from 'vue';
 import { Axios, errorHandler } from '../../axios';
-import { Message, Link } from '@arco-design/web-vue';
+import { Link, Message } from '@arco-design/web-vue';
 import { RouterLink } from 'vue-router';
-import {
-  IdentityOptions,
-  School,
-  SchoolLabel,
-  SchoolOptions,
-} from '../../consts/options';
+import { SchoolLabel } from '../../consts/options';
 
 const search = ref('');
 
@@ -75,25 +70,31 @@ const columns = [
   },
 ];
 
-// 创建用户
-const createUserForm = ref({
-    username: '',
-    password: '',
-    real_name: '',
-    student_id: '',
-    identity: '学生',
-    school: School.qdzx,
-  }),
-  createUser = () => {
-    Axios.post(`/user/`, createUserForm.value)
-      .then((_res: any) => {
-        Message.success('创建成功');
-      })
-      .catch(errorHandler);
-  };
+const createVisible = ref(false), creating = ref(false);
+const createForm = reactive({username:'', password:'', real_name:'', email:''});
+const educationGroup = computed(() => {
+  const domain = createForm.email.trim().toLowerCase().split('@')[1];
+  if (domain === 'st.shou.edu.cn') return '上海海洋大学 · 学生';
+  if (domain === 'shou.edu.cn' || domain?.endsWith('.shou.edu.cn')) return '上海海洋大学 · 教师';
+  return '按教育邮箱确定学校与身份';
+});
+async function createUser({errors}: {errors?: unknown}) {
+  if (errors) return;
+  creating.value = true;
+  try {
+    const {data} = await Axios.post('/admin/user/', {...createForm});
+    Message.success('用户已创建');
+    createVisible.value = false;
+    search.value = data.data.username;
+    pagination.value.current = 1;
+    Object.assign(createForm, {username:'', password:'', real_name:'', email:''});
+    getData();
+  } catch (error) { errorHandler(error); } finally { creating.value = false; }
+}
 </script>
 
 <template>
+  <div class="user-list-toolbar">
   <a-input-search
     search-button
     v-model="search"
@@ -109,6 +110,8 @@ const createUserForm = ref({
       getData();
     "
   />
+    <a-button type="primary" @click="createVisible = true">创建用户</a-button>
+  </div>
   <a-table
     :columns="columns"
     :data="data"
@@ -121,38 +124,22 @@ const createUserForm = ref({
       }"
   />
 
-  <a-divider />
-
-  <div>
-    <a-typography-title :heading="5"> 创建用户 </a-typography-title>
-    <a-form :model="createUserForm" auto-label-width>
-      <a-form-item label="用户名">
-        <a-input v-model="createUserForm.username" />
-      </a-form-item>
-      <a-form-item label="密码">
-        <a-input v-model="createUserForm.password" />
-      </a-form-item>
-      <a-form-item label="真实姓名">
-        <a-input v-model="createUserForm.real_name" />
-      </a-form-item>
-      <a-form-item label="学号">
-        <a-input v-model="createUserForm.student_id" />
-      </a-form-item>
-      <a-form-item label="身份">
-        <a-select
-          v-model="createUserForm.identity"
-          :options="IdentityOptions"
-        />
-      </a-form-item>
-      <a-form-item label="学校">
-        <a-select v-model="createUserForm.school" :options="SchoolOptions" />
-      </a-form-item>
+  <p>管理岗位的任免请进入独立特权管理站。</p>
+  <a-modal v-model:visible="createVisible" title="创建用户" :footer="false" :width="520" :mask-closable="!creating" :esc-to-close="!creating">
+    <a-form :model="createForm" layout="vertical" @submit="createUser">
+      <a-form-item field="username" label="用户名" :rules="[{required:true, message:'请输入用户名'}]"><a-input v-model="createForm.username" placeholder="新用户的登录账号" :max-length="150" autocomplete="off" /></a-form-item>
+      <a-form-item field="password" label="初始密码" :rules="[{required:true, message:'请输入初始密码'}, {minLength:8, message:'密码至少 8 位'}]"><a-input-password v-model="createForm.password" placeholder="至少 8 位，避免常见密码" autocomplete="new-password" /></a-form-item>
+      <a-form-item field="email" label="教育邮箱" :rules="[{required:true, message:'请输入教育邮箱'}]"><a-input v-model="createForm.email" placeholder="新用户的教育邮箱" inputmode="email" :max-length="254" /></a-form-item>
+      <a-form-item label="姓名（选填）"><a-input v-model="createForm.real_name" placeholder="姓名" :max-length="40" /></a-form-item>
+      <p class="create-user-note">{{educationGroup}}。学号按“院校缩写-邮箱前缀”生成。新用户可登录后验证邮箱；管理岗位的认证姓名取教育邮箱来信中的发件人称呼。</p>
+      <a-space><a-button type="primary" html-type="submit" :loading="creating">确认创建</a-button><a-button :disabled="creating" @click="createVisible = false">取消</a-button></a-space>
     </a-form>
-    <a-button type="primary" @click="createUser"> 创建 </a-button>
-  </div>
+  </a-modal>
 </template>
 
 <style lang="scss" scoped>
+.user-list-toolbar { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.create-user-note { color:var(--color-text-3); line-height:1.8; margin-bottom:20px; }
 .arco-form-item {
   justify-content: center;
 }
