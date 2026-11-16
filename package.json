@@ -8,6 +8,7 @@
     "dev": "vite --host 127.0.0.1 --port 15173 --strictPort",
     "build": "vue-tsc -b && vite build",
     "fbuild": "vite build",
+    "build:watermark": "node scripts/build-admin-watermark.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 15174 --strictPort",
     "generate-pwa-assets": "node scripts/generate-brand-assets.mjs",
     "test:e2e": "node tests/run-ui.mjs"
@@ -15,6 +16,7 @@
   "dependencies": {
     "crypto-js": "^4.2.0",
     "dompurify": "^3.4.17",
+    "fft.js": "4.0.4",
     "html2canvas": "^1.4.1",
     "node-rsa": "^1.1.1",
     "vue": "^3.4.37",
@@ -32,6 +34,7 @@
     "@vite-pwa/assets-generator": "^0.2.6",
     "@vitejs/plugin-vue": "^5.1.2",
     "axios": "^1.7.7",
+    "esbuild": "0.21.5",
     "luxon": "^3.5.0",
     "md-editor-v3": "^4.20.0",
     "mermaid": "^11.2.1",

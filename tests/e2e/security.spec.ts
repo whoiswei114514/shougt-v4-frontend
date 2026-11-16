@@ -2,23 +2,80 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHmac } from 'node:crypto';
-import {checkWatermarks} from './watermark-checks';
+import {checkWatermarks,analyzeWatermarkFile} from './watermark-checks';
 const work=process.env.SHOUGT_UI_WORK!;
 const fixture=JSON.parse(fs.readFileSync(path.join(work,'fixture.json'),'utf8'));
 const previews=process.env.SHOUGT_UI_PREVIEWS || path.join(work,'previews');
 fs.mkdirSync(previews,{recursive:true});
-let latestCounter=fixture.root.sign_count;
+const counterPath=path.join(work,'webauthn-counter.json');
+let latestCounter=fs.existsSync(counterPath)?Math.max(fixture.root.sign_count,JSON.parse(fs.readFileSync(counterPath,'utf8'))):fixture.root.sign_count;
 async function localOnly(context:BrowserContext){await context.route('**/*',route=>{const url=new URL(route.request().url());if(['localhost','127.0.0.1','privileged.localhost'].includes(url.hostname)&&Number(url.port)>=10000)return route.continue();return route.abort();});}
 async function authenticator(page:Page){
   const cdp=await page.context().newCDPSession(page);await cdp.send('WebAuthn.enable');
   const {authenticatorId}=await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',transport:'usb',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
   const rootCredential={credentialId:fixture.root.credential_id,isResidentCredential:true,rpId:'localhost',privateKey:fixture.root.private_key,userHandle:Buffer.from(String(fixture.root.user_id)).toString('base64'),signCount:latestCounter};
   await cdp.send('WebAuthn.addCredential',{authenticatorId,credential:rootCredential});
-  cdp.on('WebAuthn.credentialAsserted',({credential})=>{if(credential.credentialId===fixture.root.credential_id)latestCounter=Math.max(latestCounter,credential.signCount);});
+  cdp.on('WebAuthn.credentialAsserted',({credential})=>{if(credential.credentialId===fixture.root.credential_id){latestCounter=Math.max(latestCounter,credential.signCount);fs.writeFileSync(counterPath,JSON.stringify(latestCounter));}});
   await page.exposeFunction('__syncTestKey',async()=>{await cdp.send('WebAuthn.removeCredential',{authenticatorId,credentialId:fixture.root.credential_id});await cdp.send('WebAuthn.addCredential',{authenticatorId,credential:{...rootCredential,signCount:latestCounter}});});
   await page.addInitScript(()=>{const get=navigator.credentials.get.bind(navigator.credentials);navigator.credentials.get=async options=>{await (window as any).__syncTestKey();return get(options);};});
 }
 async function screenshot(page:Page,name:string){await page.evaluate(()=>document.fonts.ready);await page.locator('img').evaluateAll(images=>Promise.all(images.map(image=>(image as HTMLImageElement).decode().catch(()=>{}))));await page.locator('#nprogress').waitFor({state:'detached'});await page.screenshot({path:path.join(previews,name),fullPage:true,animations:'disabled'});}
+
+test('home layout follows viewport changes without reloading',async({page,context})=>{
+  await localOnly(context);
+  await page.goto('/');
+  await expect(page.locator('.post-list')).toBeVisible();
+  for(const width of [2560,1440,961,960,768,390,320,1440]){
+    await page.setViewportSize({width,height:900});
+    const mobile=width<=960;
+    await expect(page.locator('.sider')).toHaveCount(mobile?0:1);
+    await expect(page.locator('.arco-layout-header .arco-page-header')).toHaveCount(mobile?1:0);
+    await expect(page.getByPlaceholder('搜索')).toBeVisible();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+    const header=await page.locator('.arco-layout-header').boundingBox();
+    expect(header!.width).toBeCloseTo(width,0);
+    const feed=await page.locator('.post-list').boundingBox();
+    expect(feed!.x).toBeGreaterThanOrEqual(0);
+    expect(feed!.x+feed!.width).toBeLessThanOrEqual(width+1);
+    if(width===2560||width===390)await screenshot(page,`home-responsive-${width}.png`);
+  }
+});
+
+test('advanced verification displays only concise authentication states',async({page,context})=>{
+  test.skip(fixture.certified_key,'Run with the ordinary hardware trust profile.');
+  await localOnly(context);await authenticator(page);
+  let verificationStatus='approved';
+  const privateNote='Internal review detail must not be displayed';
+  await context.route('**/api/security/advanced/status/',route=>route.fulfill({
+    json:{status:verificationStatus,review_note:privateNote},
+  }));
+  await page.goto('/login/');
+  await page.getByPlaceholder('你的瓜田账号').fill(fixture.root.username);
+  await page.getByRole('button',{name:'使用安全密钥或通行密钥登录'}).click();
+  await page.locator('.auth-panel input[type=password]').fill(fixture.root.password);
+  await page.getByRole('button',{name:'确认并继续'}).click();
+  await expect(page).toHaveURL('http://localhost:15173/');
+  await page.goto('/settings/?tab=security');
+  const advanced=page.locator('.security-settings section').filter({
+    has:page.getByRole('heading',{name:'管理员进阶认证',exact:true}),
+  });
+  const cases:Record<string,string>={approved:'认证通过',rejected:'认证错误',expired:'认证错误',
+    not_started:'等待认证',awaiting_signature:'等待认证',awaiting_email:'等待认证',
+    awaiting_review:'等待认证',unknown:'等待认证'};
+  for(const [status,label] of Object.entries(cases)){
+    verificationStatus=status;
+    await advanced.getByRole('button',{name:'刷新审核状态'}).click();
+    await expect(advanced.getByRole('status')).toHaveText(label);
+    await expect(advanced).not.toContainText(privateNote);
+    await expect(advanced).not.toContainText('审核记录');
+    await expect(advanced).not.toContainText('实名取认证邮件的发件人称呼');
+    await expect(advanced.getByRole('button',{name:'生成并签署认证挑战'})).toBeVisible();
+  }
+  await page.setViewportSize({width:390,height:844});
+  await expect(page.locator('.arco-layout-header .arco-page-header')).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+  await screenshot(page,'security-concise-mobile.png');
+});
 
 function authenticatorCode(secret:string,counter:number){
   const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567',bytes:number[]=[];
@@ -206,12 +263,127 @@ test('independent mTLS console requires the original FIDO key for database opera
   const page=await context.newPage();await setups.get(page);await page.goto('http://localhost:15173/login/');await page.getByPlaceholder('你的瓜田账号').fill(fixture.root.username);await page.getByRole('button',{name:'使用安全密钥或通行密钥登录'}).click();
   await expect(page.getByRole('heading',{name:'再确认一次，是你本人'})).toBeVisible();await page.locator('.auth-panel input[type=password]').fill(fixture.root.password);await page.getByRole('button',{name:'确认并继续'}).click();await expect(page).toHaveURL('http://localhost:15173/');
   await page.goto('http://localhost:15173/security/');
-  await expect(page.getByText('实名取认证邮件的发件人称呼，学号按“院校缩写-邮箱前缀”生成。发信前，请将教育邮箱的发件人称呼设置为本人姓名。',{exact:true})).toBeVisible();
+  await expect(page.getByText('审核记录：',{exact:false})).toHaveCount(0);
+  await expect(page.getByText('实名取认证邮件的发件人称呼',{exact:false})).toHaveCount(0);
+  await expect(page.getByRole('status').filter({hasText:'等待认证'})).toBeVisible();
   await expect(page.getByPlaceholder('与认证材料、客户端证书一致的姓名')).toHaveCount(0);
   const popup=context.waitForEvent('page');await page.getByRole('button',{name:'进入独立特权管理站'}).click();const consolePage=await popup;await setups.get(consolePage);await expect(consolePage).toHaveURL(/https:\/\/privileged\.localhost:18443/);await expect(consolePage.locator('#workspace')).toBeVisible();
   const approvalWindow=context.waitForEvent('page');await consolePage.getByRole('button',{name:'查找用户',exact:true}).click();const approval=await approvalWindow;await setups.get(approval);await expect(approval.getByRole('heading',{name:'确认这一次管理操作'})).toBeVisible();await approval.getByRole('button',{name:'验证安全密钥并授权'}).click();
   await expect(consolePage.locator('#users')).toContainText('ui_root');await checkWatermarks(consolePage);await screenshot(consolePage,'privileged-console.png');
   await context.close();
+});
+
+test('watermark inspection in console binds evidence and automatically finds its original administrator',async({browser})=>{
+  test.skip(fixture.certified_key,'Run with the ordinary hardware trust profile.');
+  const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:1440,height:1000},
+    clientCertificates:[{origin:'https://privileged.localhost:18443',certPath:fixture.client_certificate,keyPath:fixture.client_key}]});
+  await localOnly(context);
+  const setups=new Map<Page,Promise<void>>();
+  context.on('page',page=>setups.set(page,authenticator(page)));
+  const page=await context.newPage();await setups.get(page);
+  try {
+    await page.goto('http://localhost:15173/login/');
+    await page.getByPlaceholder('你的瓜田账号').fill(fixture.root.username);
+    await page.getByRole('button',{name:'使用安全密钥或通行密钥登录'}).click();
+    await page.locator('.auth-panel input[type=password]').fill(fixture.root.password);
+    await page.getByRole('button',{name:'确认并继续'}).click();
+    await expect(page).toHaveURL('http://localhost:15173/');
+    await page.goto('http://localhost:15173/settings/?tab=security');
+    const opened=context.waitForEvent('page');
+    await page.getByRole('button',{name:'进入独立特权管理站'}).click();
+    const consolePage=await opened;await setups.get(consolePage);
+    const errors:string[]=[];consolePage.on('pageerror',error=>errors.push(error.message));
+    await expect(consolePage.locator('#workspace')).toBeVisible();
+    await consolePage.locator('nav button[data-page="watermark"]').click();
+    await expect(consolePage.locator('#wm-inspect')).toBeVisible();
+
+    async function exportedReport() {
+      const downloaded=consolePage.waitForEvent('download');
+      await consolePage.locator('#wm-export').click();
+      const download=await downloaded,stream=await download.createReadStream(),chunks:Buffer[]=[];
+      for await (const chunk of stream!) chunks.push(chunk);
+      return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    }
+    async function inspect() {
+      const approvalOpened=context.waitForEvent('page');
+      await consolePage.locator('#wm-inspect').click();
+      const approval=await approvalOpened;await setups.get(approval);
+      await expect(approval.getByRole('heading',{name:'检验水印并关联操作管理员'})).toBeVisible();
+      await expect(approval.getByText('文件 SHA-256',{exact:true})).toBeVisible();
+      const result=consolePage.waitForResponse(response=>response.url().endsWith('/api/watermark/inspect'));
+      await approval.getByRole('button',{name:'验证安全密钥并授权'}).click();
+      const response=await result;expect(response.status()).toBe(200);
+      await expect(consolePage.locator('#wm-status')).toContainText('检验完成');
+      return exportedReport();
+    }
+    await consolePage.locator('#wm-file-input').setInputFiles(fixture.watermark_trace.sample);
+    await expect(consolePage.locator('#wm-preview')).toBeVisible();
+    const report=await inspect();
+    expect(report.association.status).toBe('matched');
+    const source=report.association.markers.find((marker:any)=>marker.status==='matched');
+    expect(source.watermark_id).toBe(fixture.watermark_trace.marker);
+    expect(source.administrators[0].user_id).toBe(fixture.watermark_trace.actor_id);
+    expect(source.administrators[0].user_id).not.toBe(fixture.root.user_id);
+    await expect(consolePage.locator('#wm-associations')).toContainText(fixture.watermark_trace.username);
+    await expect(consolePage.locator('#wm-associations')).toContainText('关联管理员');
+    await expect(consolePage.locator('#wm-associations')).toContainText('GET /admin/user/');
+    await screenshot(consolePage,'console-watermark-desktop.png');
+    for (const mode of ['contrast','residual','lsb','alpha','spectrum','original']) {
+      await consolePage.locator('#wm-view-mode').selectOption(mode);
+      await consolePage.locator('#wm-preview').evaluate(image=>(image as HTMLImageElement).decode());
+      expect(await consolePage.locator('#wm-preview').evaluate(image=>(image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    }
+    await consolePage.locator('#wm-view-mode').selectOption('spectrum');
+    await consolePage.setViewportSize({width:390,height:844});
+    expect(await consolePage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+    await screenshot(consolePage,'console-watermark-mobile.png');
+    await consolePage.setViewportSize({width:1440,height:1000});
+    const exported=await exportedReport();
+    expect(exported.previews).toBeUndefined();
+    expect(exported.association.markers[0].administrators[0].user_id).toBe(fixture.watermark_trace.actor_id);
+
+    await consolePage.locator('#wm-file-input').setInputFiles(fixture.watermark_trace.negative);
+    const negative=await inspect();
+    expect(negative.association.status).toBe('no_marker');
+    expect(negative.association.markers).toEqual([]);
+    await consolePage.locator('#wm-text-tab').click();
+    const bits=fixture.watermark_trace.marker.split('').map((digit:string)=>parseInt(digit,16).toString(2).padStart(4,'0')).join('');
+    const packet='\u2063'+bits.replaceAll('0','\u200b').replaceAll('1','\u200c')+'\u2063';
+    await consolePage.locator('#wm-text-input').fill('isolated copied text'+packet);
+    const text=await inspect();
+    expect(text.text.packets).toBe(1);
+    expect(text.association.markers[0].administrators[0].user_id).toBe(fixture.watermark_trace.actor_id);
+    await expect(consolePage.locator('#wm-visible-text')).toHaveValue(/U\+200B/);
+    const oldFrame=await consolePage.locator('[data-shou-watermark-layer="frequency"]').getAttribute('data-shou-frame-time');
+    await expect(consolePage.locator('[data-shou-watermark-layer="frequency"]')).not.toHaveAttribute('data-shou-frame-time',oldFrame!,{timeout:12000});
+    const downloaded=consolePage.waitForEvent('download');
+    await consolePage.getByRole('button',{name:'下载带溯源的截图'}).click();
+    const capture=await downloaded,capturePath=path.join(work,'console-dynamic-lsb.png');
+    await capture.saveAs(capturePath);
+    const pixels=analyzeWatermarkFile(capturePath);
+    expect(pixels.lsb.structured_payloads[0].actor_id).toBe(fixture.root.user_id);
+    const captureFrame=pixels.lsb.structured_payloads[0];
+    expect(captureFrame.operation_at).toBeTruthy();
+    expect(captureFrame.audit_id).toBeGreaterThan(0);
+    await consolePage.locator('#wm-file-input').setInputFiles(capturePath);
+    const signed=await inspect();
+    const payload=signed.association.payloads.find((item:any)=>item.token===captureFrame.token);
+    expect(payload.signature_status).toBe('verified');
+    expect(payload.audit_status).toBe('matched');
+    expect(payload.actor_id).toBe(fixture.root.user_id);
+    expect(payload.operation_at).toBe(captureFrame.operation_at);
+    expect(payload.operation.action).toBe('inspect_watermark');
+    await expect(consolePage.locator('#wm-associations')).toContainText('服务端签名有效');
+    await expect(consolePage.locator('#wm-associations')).toContainText('操作时间');
+    await screenshot(consolePage,'console-signed-watermark-desktop.png');
+    await consolePage.setViewportSize({width:390,height:844});
+    expect(await consolePage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+    await screenshot(consolePage,'console-signed-watermark-mobile.png');
+    await consolePage.setViewportSize({width:1440,height:1000});
+    await consolePage.locator('nav button[data-page="profile"]').click();
+    await expect(consolePage.locator('#load-profile')).toBeVisible();
+    expect(errors).toEqual([]);
+  } finally { await context.close(); }
 });
 
 test('revoked remembered session returns to login on reload',async({page,context})=>{
@@ -267,7 +439,7 @@ for (const popupBlocked of [false,true]) test(`super admin impersonation ${popup
   }
   await authorize('#load-profile');
   await expect(consolePage.locator('#field-username')).toHaveValue(fixture.normal.username);
-  await consolePage.locator('#profile-reason').fill('浏览器回归检查临时代登录');
+  await expect(consolePage.locator('#role-reason, #profile-reason, #verification-reason, #contact-reason')).toHaveCount(0);
   let target:Page;
   if (popupBlocked) {
     await consolePage.evaluate(() => { window.open = () => null; });
@@ -334,6 +506,13 @@ test('user list creates ordinary users and watermarks text without changing inpu
   expect(result.request().postDataJSON()).not.toHaveProperty('code');
   await expect(page.getByRole('cell',{name:username,exact:true})).toBeVisible();
   await expect(page.getByPlaceholder('新用户的登录账号')).toBeHidden();
+  const captured=page.waitForEvent('download');
+  await page.getByRole('button',{name:'下载带溯源的截图'}).click();
+  const download=await captured,file=path.join(work,'main-dynamic-lsb.png');
+  await download.saveAs(file);
+  const image=analyzeWatermarkFile(file);
+  expect(image.lsb.structured_payloads[0].actor_id).toBe(fixture.root.user_id);
+  expect(image.lsb.structured_payloads[0].source).toBe('main');
   await screenshot(page,'admin-user-list.png');
   await page.goto('/settings/?tab=security');
   await expect(page.locator('[data-shou-text-mark]')).toHaveCount(0);

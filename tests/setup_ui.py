@@ -33,8 +33,9 @@ from django.conf import settings
 from django.utils import timezone
 from cryptography.hazmat.primitives import serialization
 from gt_auth.test_support import make_user, add_key, PASSWORD
-from gt_auth.models import ClientCertificateIdentity, Role, RoleMember
-from gt_forum.models import Post, PostVersion
+from gt_auth.models import ClientCertificateIdentity, Follow, Role, RoleMember
+from gt_forum.models import Post, PostComment, PostVersion
+from gt_admin.models import AdminAuditLog
 from backend.certificates import CertificateVerifier
 from tests.certificates_fixture import PKI
 
@@ -45,6 +46,27 @@ RoleMember.objects.create(user=normal, role=alternate, is_owner=True)
 root, _ = make_user("ui_root", roles=["super_admin"])
 root.student_id = "shou-ui_root"
 root.save(update_fields=["student_id"])
+trace_actor, _ = make_user("ui_trace_manager", roles=["admin_user"])
+trace_actor.student_id = "shou-ui_trace_manager"
+trace_actor.save(update_fields=["student_id"])
+private_role = Role.objects.create(name="匿名关系测试角色", is_private=True)
+RoleMember.objects.create(user=trace_actor, role=private_role, is_owner=True)
+Follow.objects.create(follower=private_role, following=normal.primary_role)
+private_post = Post.objects.create(author=trace_actor.primary_role, type=1, content="private fixture", share_with=-3)
+orphan_post = Post.objects.create(author=None, type=1, content="orphaned private fixture", share_with=-3)
+orphan_comment = PostComment.objects.create(post=private_post, author=None, user=trace_actor, content="orphaned private reply")
+privacy_team = Role.objects.create(name="隐私回归共享角色", is_shared=True)
+RoleMember.objects.create(user=trace_actor, role=privacy_team, is_owner=True)
+RoleMember.objects.create(user=normal, role=privacy_team)
+shared_post = Post.objects.create(author=privacy_team, type=1, content="shared privacy fixture", share_with=-3)
+PostVersion.objects.create(post=shared_post, user=trace_actor, content=shared_post.content, images=[], share_with=-3)
+shared_comment = PostComment.objects.create(post=shared_post, author=privacy_team, user=trace_actor, content="shared reply")
+trace_marker = "4a13b07e2c8f9d1056a4e38b"
+AdminAuditLog.objects.create(
+    actor_id=trace_actor.pk, actor_name=trace_actor.username, roles=["admin_user"],
+    action="GET /admin/user/", session_id="isolated-watermark-origin-session",
+    watermark_id=trace_marker, details={"fixture_only": True},
+)
 pin_post = Post.objects.create(author=normal.primary_role, type=2, title="浏览器测试置顶文章", content="帖子置顶回归内容",
                                share_with=0, review_status=0, create_time=timezone.now() - timedelta(days=1))
 PostVersion.objects.create(post=pin_post, user=normal, title=pin_post.title, content=pin_post.content,
@@ -80,5 +102,56 @@ fixture = {"normal":{"username":normal.username,"password":PASSWORD,"user_id":no
            "pin_post":{"id":pin_post.pk,"title":pin_post.title},
            "audit_post":{"id":audit_post.pk},
            "client_certificate":str(work / "pki/client.pem"),"client_key":str(work / "pki/client-key.pem")}
+fixture["watermark_trace"] = {
+    "marker": trace_marker, "actor_id": trace_actor.pk, "username": trace_actor.username,
+    "sample": str(console / "tests/fixtures/watermarks/management.png"),
+    "negative": str(console / "tests/fixtures/watermarks/negative.png"),
+}
+fixture["privacy_audit"] = {
+    "orphan_post": orphan_post.pk, "orphan_comment": orphan_comment.pk,
+    "private_post": private_post.pk, "private_role": private_role.pk,
+    "shared_role": privacy_team.pk, "shared_post": shared_post.pk, "shared_comment": shared_comment.pk,
+    "owner_username": trace_actor.username, "owner_real_name": trace_actor.real_name,
+    "owner_student_id": trace_actor.student_id,
+}
+# Separate credentials keep new dual-key/read-only browser scenarios independent.
+reader, _ = make_user("ui_reader", roles=["global_reader"])
+reader_key, reader_virtual = add_key(reader)
+dual, _ = make_user("ui_dual", roles=["super_admin"])
+dual_key, dual_virtual = add_key(dual)
+dual_second, dual_other = add_key(dual)
+def browser_key(user, key, virtual):
+    return {"username":user.username,"password":PASSWORD,"user_id":user.pk,"real_name":user.real_name,
+            "credential_id":base64.b64encode(virtual.id).decode(),"sign_count":key.sign_count,
+            "private_key":base64.b64encode(virtual.private_key.private_bytes(serialization.Encoding.DER,serialization.PrivateFormat.PKCS8,serialization.NoEncryption())).decode()}
+fixture["reader"] = browser_key(reader, reader_key, reader_virtual)
+fixture["dual"] = browser_key(dual, dual_key, dual_virtual)
+fixture["dual_second"] = browser_key(dual, dual_second, dual_other)
+from tests.certificates_fixture import issue
+reader_private, reader_cert = issue(reader.real_name, issuer=pki.sub, issuer_key=pki.sub_key, client=True)
+pki.write_pair("reader", reader_cert, reader_private)
+ClientCertificateIdentity.objects.create(user=reader, **CertificateVerifier(pki.config).verify(reader_cert.public_bytes(serialization.Encoding.DER)))
+fixture["reader_certificate"] = str(work / "pki/reader.pem")
+fixture["reader_private_key"] = str(work / "pki/reader-key.pem")
+issuer, _ = make_user("ui_issuer", roles=["super_admin"])
+issuer_key, issuer_virtual = add_key(issuer)
+fixture["issuer"] = browser_key(issuer, issuer_key, issuer_virtual)
+issuer_private, issuer_cert = issue(issuer.real_name, issuer=pki.sub, issuer_key=pki.sub_key, client=True)
+pki.write_pair("issuer", issuer_cert, issuer_private)
+ClientCertificateIdentity.objects.create(user=issuer, **CertificateVerifier(pki.config).verify(issuer_cert.public_bytes(serialization.Encoding.DER)))
+fixture["issuer_certificate"] = str(work / "pki/issuer.pem")
+fixture["issuer_private_key"] = str(work / "pki/issuer-key.pem")
+recipient, _ = make_user("ui_issue_recipient", roles=["base_admin"])
+add_key(recipient)
+fixture["issuance_recipient"] = {"user_id":recipient.pk,"username":recipient.username}
+onboarding, _ = make_user("ui_onboarding", roles=["admin_user"])
+onboarding_key, onboarding_virtual = add_key(onboarding)
+onboarding.admin_onboarding_required = True
+onboarding.save(update_fields=["admin_onboarding_required"])
+fixture["onboarding"] = browser_key(onboarding, onboarding_key, onboarding_virtual)
+import secrets
+fixture["piv_pair_code"] = secrets.token_urlsafe(18)
+(work / "pki/bridge-test-ca-key.pem").write_bytes(pki.sub_key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
+(work / "webauthn-counter.json").write_text(str(key.sign_count), encoding="utf-8")
 (work / "fixture.json").write_text(json.dumps(fixture), encoding="utf-8")
 print("Created isolated browser fixtures and test-only certificate authority")

@@ -14,6 +14,8 @@ export interface SecurityState {
   is_management: boolean;
   is_privileged: boolean;
   is_admin_candidate: boolean;
+  admin_onboarding_required: boolean;
+  admin_setup_ready: boolean;
   admin_access: boolean;
   key_authenticated: boolean;
   session_key_assurance: KeyAssurance | null;
@@ -52,6 +54,7 @@ export interface Permission {
   admin_alumni: boolean;
   admin_file: boolean;
   admin_image: boolean;
+  global_reader: boolean;
   super_admin: boolean;
   admin_admin: boolean;
   superadmin_admin: boolean;

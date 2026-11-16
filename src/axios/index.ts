@@ -31,7 +31,10 @@ Axios.interceptors.request.use(config => {
   return config;
 });
 
-Axios.interceptors.response.use(response => response, error => {
+Axios.interceptors.response.use(response => {
+  if (response.headers['x-shou-audit-id']) window.dispatchEvent(new Event('shou-watermark-refresh'));
+  return response;
+}, error => {
   if (error.response?.status === 401) {
     const store = useStore();
     const signature = store.authorization?.signature;

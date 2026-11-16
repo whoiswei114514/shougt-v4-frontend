@@ -26,11 +26,14 @@ const displayedKeyAssurance=computed<KeyAssurance|null>(()=>previewKeyLevel.valu
 const form=reactive({password:'',name:'我的安全密钥',kind:'security_key',totpCode:''});
 const totpSetup=ref<{secret:string;uri:string}|null>(null), mail=ref<any>(null), advanced=ref<any>({status:'not_started'}), contact=ref('renzheng@shouguatian.com');
 const manager=computed(()=>status.value?.is_management || status.value?.is_admin_candidate);
-const advancedLabels:Record<string,string>={not_started:'尚未开始',awaiting_signature:'等待安全密钥签名',awaiting_email:'等待教育邮箱来信',awaiting_review:'邮件已验证，等待实名材料审核',approved:'认证通过',rejected:'认证未通过',expired:'挑战已过期，请重新生成'};
+const onboarding=computed(()=>Boolean(status.value?.admin_onboarding_required));
+const hasTrustedKey=computed(()=>Boolean(status.value?.keys.some(key=>key.trusted_hardware)));
+function showSetupSection(id:string){document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'start'});}
+const advancedLabel=computed(()=>advanced.value.status==='approved'?'认证通过':['rejected','expired'].includes(advanced.value.status)?'认证错误':'等待认证');
 async function refresh(){const [security, info, verification]=await Promise.all([Axios.get('/security/status/'),Axios.get('/user/info/'),Axios.get('/security/advanced/status/')]);status.value=security.data;saveUserInfo(info.data,false);advanced.value=verification.data;}
 async function run(action:()=>Promise<void>){busy.value=true;try{await action();}catch(error){Message.error(securityError(error));}finally{busy.value=false;}}
 async function accountProof(){if(status.value?.fido_authenticated)await reauthenticate();}
-const bindKey=()=>run(async()=>{await accountProof();const {data}=await Axios.post('/security/key-register-begin/',form);await Axios.post('/security/key-register-finish/',await createCredential(data));form.password='';Message.success('凭据已绑定');await refresh();});
+const bindKey=()=>run(async()=>{await accountProof();const {data}=await Axios.post('/security/key-register-begin/',form);await Axios.post('/security/key-register-finish/',{...await createCredential(data),password:form.password});form.password='';Message.success('凭据已绑定');await refresh();});
 function removeKey(key:KeyInfo){Modal.confirm({title:`撤销「${key.name}」`,content:'撤销后，这个凭据将无法用于登录。管理员需保留至少一把安全密钥。',onOk:()=>run(async()=>{await accountProof();await Axios.post('/security/key-remove/',{key_id:key.id,password:form.password});if(status.value?.session_key_id===key.id){sharedFunctions.logout();await router.replace('/login/');}else await refresh();Message.success('凭据已撤销');})});}
 const startTotp=()=>run(async()=>{await accountProof();totpSetup.value=(await Axios.post('/security/totp-begin/',{password:form.password})).data;});
 const confirmTotp=()=>run(async()=>{await Axios.post('/security/totp-confirm/',{code:form.totpCode,password:form.password});totpSetup.value=null;form.totpCode='';form.password='';await refresh();Message.success('二次验证器已启用');});
@@ -41,11 +44,32 @@ function downloadMail(){const url=URL.createObjectURL(new Blob([mail.value.body]
 const openConsole=()=>run(async()=>{const target=window.open('about:blank','shou-privileged');try{const {data}=await Axios.post('/security/console-begin/');const result=await Axios.post('/security/console-finish/',await getAssertion(data));if(target)target.location.href=result.data.url;else window.location.assign(result.data.url);}catch(error){target?.close();throw error;}});
 const openDjango=()=>run(async()=>{await reauthenticate();const {data}=await Axios.post('/security/django-admin/');window.open(data.url,'_blank','noopener,noreferrer');});
 const showRealName=(value:boolean)=>run(async()=>{await Axios.post('/security/privacy/',{show_real_name:value});await refresh();Message.success('实名展示设置已保存');});
+const completeAdminSetup=()=>run(async()=>{
+  const {data}=await Axios.post('/security/admin-setup-begin/');
+  const result=await Axios.post('/security/admin-setup-finish/',await getAssertion(data));
+  saveUserInfo(result.data,true);await refresh();Message.success('管理员安全配置已完成');
+});
 onMounted(()=>run(async()=>{await refresh();contact.value=(await Axios.get('/security/config/')).data.material_review_contact;}));
 </script>
 <template>
   <div class="security-settings">
-    <a-alert v-if="status?.session_scope === 'enrollment'" type="info" class="security-notice">
+    <section v-if="onboarding" class="admin-welcome" aria-labelledby="admin-welcome-title">
+      <p class="admin-welcome-eyebrow">SECURITY / FIRST LOGIN</p>
+      <h2 id="admin-welcome-title">欢迎加入管理团队</h2>
+      <p class="security-muted">先为管理身份配置安全密钥。完成以下步骤后，就可以开始使用获授的管理功能。</p>
+      <ol class="admin-welcome-steps">
+        <li :class="{complete:hasTrustedKey}"><span class="admin-step-number">01</span><div><strong>配置 FIDO2 安全密钥</strong><p>{{hasTrustedKey?'已找到可信安全密钥，可继续使用或添加备用密钥。':'连接支持 PIN 或生物识别的 USB / NFC 安全密钥，完成绑定。'}}</p></div></li>
+        <li :class="{complete:status?.admin_setup_ready}"><span class="admin-step-number">02</span><div><strong>确认管理身份</strong><p>{{status?.admin_setup_ready?'邮箱、实名与进阶认证已就绪。':'完成教育邮箱与身份认证，等待材料审核通过。'}}</p></div></li>
+        <li><span class="admin-step-number">03</span><div><strong>验证密钥，完成配置</strong><p>使用本人的安全密钥确认。配置完成前，仅开放安全配置功能。</p></div></li>
+      </ol>
+      <a-space wrap>
+        <a-button v-if="!hasTrustedKey" type="primary" @click="showSetupSection('security-key-setup')">绑定我的安全密钥</a-button>
+        <a-button v-else-if="!status?.admin_setup_ready" type="primary" @click="showSetupSection('security-identity-setup')">继续身份认证</a-button>
+        <a-button v-else type="primary" :loading="busy" @click="completeAdminSetup">验证安全密钥并完成配置</a-button>
+        <a-button v-if="hasTrustedKey" @click="showSetupSection('security-key-setup')">管理或添加备用密钥</a-button>
+      </a-space>
+    </section>
+    <a-alert v-if="status?.session_scope === 'enrollment' && !onboarding" type="info" class="security-notice">
       当前为安全配置会话。完成邮箱、密钥、实名与进阶认证后，请重新使用安全密钥登录。
     </a-alert>
     <a-alert v-if="status?.admin_suspended_until && new Date(status.admin_suspended_until).getTime() > Date.now()" type="warning" class="security-notice">
@@ -68,9 +92,9 @@ onMounted(()=>run(async()=>{await refresh();contact.value=(await Axios.get('/sec
 
     <a-divider />
 
-    <section>
+    <section id="security-key-setup">
       <a-typography-title :heading="5">安全密钥与通行密钥</a-typography-title>
-      <p class="security-muted">普通账号可使用设备通行密钥；管理员使用支持 PIN 或生物识别的外置安全密钥。</p>
+      <p class="security-muted">每个账号可绑定 1–3 把安全密钥，支持 USB 与 NFC。普通账号验证任意一把即可；管理员可选安全密钥加密码、二次验证器，或验证两把不同的安全密钥。</p>
       <div v-for="key in status?.keys" :key="key.id" class="key-row">
         <div class="key-info">
           <span class="key-name">{{ key.name }}</span>
@@ -94,7 +118,7 @@ onMounted(()=>run(async()=>{await refresh();contact.value=(await Axios.get('/sec
           </a-radio-group>
         </a-form-item>
         <a-form-item>
-          <a-button type="primary" html-type="submit" :loading="busy">绑定新凭据</a-button>
+          <a-button type="primary" html-type="submit" :loading="busy" :disabled="form.kind === 'security_key' && (status?.keys.filter((key:any) => key.is_security_key).length || 0) >= 3">绑定新凭据</a-button>
         </a-form-item>
       </a-form>
     </section>
@@ -132,13 +156,11 @@ onMounted(()=>run(async()=>{await refresh();contact.value=(await Axios.get('/sec
 
     <template v-if="manager">
       <a-divider />
-      <section>
+      <section id="security-identity-setup">
         <a-typography-title :heading="5">管理员进阶认证</a-typography-title>
         <p class="security-muted">使用本次登录的安全密钥，对随机挑战与签发时间进行签名。请在 24 小时内，使用已验证的教育邮箱，将完整认证邮件发送至 <strong>renzheng@shouguatian.com</strong>。</p>
-        <a-tag>{{ advancedLabels[advanced.status] || advanced.status }}</a-tag>
-        <p v-if="advanced.review_note" class="security-muted">审核记录：{{ advanced.review_note }}</p>
+        <a-tag role="status">{{ advancedLabel }}</a-tag>
         <a-form :model="form" class="security-form" @submit="signAdvanced">
-          <p class="security-muted">实名取认证邮件的发件人称呼，学号按“院校缩写-邮箱前缀”生成。发信前，请将教育邮箱的发件人称呼设置为本人姓名。</p>
           <p v-if="advanced.real_name || store.user?.real_name" class="advanced-details">实名：{{ advanced.real_name || store.user?.real_name }}<span v-if="advanced.student_id || store.user?.student_id"> · 学号：{{ advanced.student_id || store.user?.student_id }}</span></p>
           <a-space wrap>
             <a-button type="primary" html-type="submit" :loading="busy">生成并签署认证挑战</a-button>

@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import tls from 'node:tls';
 
 const fixture = JSON.parse(fs.readFileSync(path.join(process.env.SHOUGT_UI_WORK!, 'fixture.json'), 'utf8'));
 
@@ -75,9 +76,58 @@ test('mTLS console rejects missing certificates forged tickets cross-site reques
     expect((await context.request.post(origin + '/api/prepare', { headers: sameOrigin, data: { action: 'list_logs', payload: {} } })).status()).toBe(401);
     expect((await context.request.post(origin + '/api/login', { headers: { Origin: 'https://untrusted.invalid' }, data: { ticket: 'forged-ticket' } })).status()).toBe(403);
     expect((await context.request.post(origin + '/api/login', { headers: sameOrigin, data: [] })).status()).toBe(400);
-    expect((await context.request.post(origin + '/api/login', { headers: sameOrigin, data: { ticket: 'x'.repeat(70000) } })).status()).toBe(413);
+    const oversized=await new Promise<string>((resolve,reject)=>{
+      const socket=tls.connect({host:'127.0.0.1',port:18443,servername:'privileged.localhost',
+        rejectUnauthorized:false,cert:fs.readFileSync(fixture.client_certificate),key:fs.readFileSync(fixture.client_key)});
+      socket.setTimeout(5000,()=>socket.destroy(new Error('Oversized-header response timed out')));
+      socket.once('secureConnect',()=>socket.write(
+        `POST /api/login HTTP/1.1\r\nHost: privileged.localhost:18443\r\nOrigin: ${origin}\r\n`+
+        'Content-Type: application/json\r\nContent-Length: 70013\r\nConnection: close\r\n\r\n'));
+      let response='';
+      socket.on('data',chunk=>{response+=chunk.toString();if(response.includes('\r\n')){
+        resolve(response.split('\r\n')[0]);socket.end();
+      }});
+      socket.once('error',reject);
+      socket.once('end',()=>{if(!response)reject(new Error('No oversized-header response'));});
+    });
+    expect(oversized).toBe('HTTP/1.1 413 Request Entity Too Large');
     for (const path of ['/config.json', '/.env', '/%2e%2e/config.json', '/api/password_hash']) {
       expect((await context.request.get(origin + path)).status(), path).toBe(404);
     }
   } finally { await context.close(); }
+});
+
+test('privacy and ownership checks also hold through the frontend HTTP proxy', async ({ request }) => {
+  const login = await request.post('/api/security/password-login/', { data: fixture.normal });
+  expect(login.status()).toBe(200);
+  expect(login.headers()['cache-control']).toContain('no-store');
+  const auth = (await login.json()).authorization;
+  const authorization = (roleId?: number) => ({ Authorization: 'Bearer ' +
+    Buffer.from(JSON.stringify({ ...auth.payload, ...(roleId ? { role_id: roleId } : {}) })).toString('base64url') + '.' + auth.signature });
+  const headers = authorization(), data = fixture.privacy_audit;
+  for (const url of [`/api/admin/post/${data.orphan_post}/`,
+                     `/api/admin/post/${data.orphan_post}/version/1/`,
+                     `/api/admin/comment/${data.orphan_comment}/`]) {
+    const response = await request.get(url, { headers });
+    expect(response.status(), url).toBe(404);
+    expect(response.headers()['cache-control']).toContain('no-store');
+  }
+  const followGraph = await request.get('/api/role/', { params: { followers__follower: data.private_role } });
+  expect(followGraph.status()).toBe(200);
+  expect((await followGraph.json()).results).toEqual([]);
+  const hidden = await request.post('/api/report/', { headers, data: { content_type: 'post', content_id: data.private_post } });
+  const absent = await request.post('/api/report/', { headers, data: { content_type: 'post', content_id: 999999 } });
+  expect(hidden.status()).toBe(404);
+  expect(await hidden.json()).toEqual(await absent.json());
+  for (const url of [`/api/post/${data.shared_post}/?for=edit`,
+                     `/api/admin/post/${data.shared_post}/`,
+                     `/api/admin/post/${data.shared_post}/version/1/`,
+                     `/api/admin/comment/${data.shared_comment}/`]) {
+    const response = await request.get(url, { headers: authorization(data.shared_role) });
+    expect(response.status(), url).toBe(200);
+    const body = await response.text();
+    for (const secret of [data.owner_username, data.owner_real_name, data.owner_student_id]) {
+      expect(body, url).not.toContain(secret);
+    }
+  }
 });
