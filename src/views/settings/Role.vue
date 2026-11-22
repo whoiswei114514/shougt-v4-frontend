@@ -48,6 +48,7 @@ const roleData = ref({} as RoleFull),
     verify: null,
     avatar: null as string | null,
     members_id: [] as number[],
+    admins_id: [] as number[],
     external_links: {
       github: '',
       wechat: '',
@@ -93,6 +94,15 @@ const roleData = ref({} as RoleFull),
         return '-';
       }),
     },
+    {
+      label: '角色管理员',
+      value: computed(() => {
+        const list = roleData.value.admins || [];
+        return list.length
+          ? list.map(user => `${user.real_name || user.username}(${user.username})`).join('、')
+          : '-';
+      }),
+    },
   ]);
 
 const avatarFile = ref({
@@ -101,17 +111,24 @@ const avatarFile = ref({
 } as FileItem);
 
 const updateLocalInfo = (data: any) => {
-    editRoleForm.members_id = data.members.map((user: UserBrief) => {
-      defaultUserOptions.push(user);
-      return user.id;
-    });
+    roleData.value = data;
+    const adminIds = new Set((data.admins || []).map((user: UserBrief) => user.id));
+    const ownerNow = Boolean(data.is_owner ?? (data.user_info && data.user_info.id === store.user?.id));
+    defaultUserOptions.splice(0, defaultUserOptions.length);
+    const seen = new Set<number>();
+    for (const user of [...(data.members || []), ...(data.admins || [])]) {
+      if (seen.has(user.id)) continue;
+      seen.add(user.id);
+      defaultUserOptions.push({ ...user, disabled: !ownerNow && adminIds.has(user.id) });
+    }
     for (const key in data) {
       if (key in editRoleForm) {
         // @ts-ignore
         editRoleForm[key] = data[key];
       }
     }
-    roleData.value = data;
+    editRoleForm.members_id = (data.members || []).map((user: UserBrief) => user.id);
+    editRoleForm.admins_id = (data.admins || []).map((user: UserBrief) => user.id);
     avatarFile.value.url = data.avatar;
 
     for (const role of store.roles) {
@@ -133,7 +150,23 @@ const updateLocalInfo = (data: any) => {
   saveRoleLoading = ref(false),
   saveRole = ({ values, errors }: { values: any; errors: any }) => {
     if (errors) return;
-    if (!values.is_shared) values.members_id = [];
+    if (isRoleAdminOnly.value) {
+      saveRoleLoading.value = true;
+      Axios.patch(`/role/${values.id}/`, { members_id: values.members_id })
+        .then(res => {
+          updateLocalInfo(res.data.data);
+          Message.success('成员列表已保存');
+        })
+        .catch(errorHandler)
+        .finally(() => {
+          saveRoleLoading.value = false;
+        });
+      return;
+    }
+    if (!values.is_shared) {
+      values.members_id = [];
+      values.admins_id = [];
+    }
     saveRoleLoading.value = true;
     Axios.put(`/role/${values.id}/`, values)
       .then(res => {
@@ -172,12 +205,40 @@ const handleAvatarUpload = (option: RequestOption) => {
   return {} as UploadRequest;
 };
 
+const isOwner = computed(() =>
+  Boolean(
+    roleData.value.is_owner ??
+      (editRoleForm.user_info && editRoleForm.user_info.id === store.user?.id)
+  )
+);
+
+const isRoleAdminOnly = computed(() =>
+  Boolean(!isOwner.value && roleData.value.is_admin && editRoleForm.is_shared)
+);
+
+const memberAdminOptions = computed(() =>
+  editRoleForm.members_id.map(id => {
+    const found = defaultUserOptions.find(item => item.id === id);
+    return {
+      value: id,
+      label: found
+        ? `${found.real_name || found.username} (${found.username})`
+        : `成员 #${id}`,
+    };
+  })
+);
+
+watch(
+  () => [...editRoleForm.members_id],
+  ids => {
+    editRoleForm.admins_id = editRoleForm.admins_id.filter(id =>
+      ids.includes(id)
+    );
+  }
+);
+
 const disableEdit = computed(() => {
-  return (
-    !editRoleForm.editable ||
-    (editRoleForm.user_info && editRoleForm.user_info.id !== store.user?.id) ||
-    false
-  );
+  return !editRoleForm.editable || (!isOwner.value && !isRoleAdminOnly.value);
 });
 </script>
 
@@ -213,11 +274,14 @@ const disableEdit = computed(() => {
       auto-label-width
       :disabled="disableEdit"
     >
-      <a-form-item v-if="disableEdit">
+      <a-form-item v-if="disableEdit || isRoleAdminOnly">
         <a-alert type="warning" v-if="!editRoleForm.editable">
           当前角色不可修改
         </a-alert>
-        <a-alert type="warning" v-else> 只有所有者可以修改角色 </a-alert>
+        <a-alert type="info" v-else-if="isRoleAdminOnly">
+          你是该角色的角色管理员，可添加或移除普通共享成员（不可移除其他管理员或修改角色信息）。
+        </a-alert>
+        <a-alert type="warning" v-else> 只有所有者或角色管理员可以管理此角色 </a-alert>
       </a-form-item>
       <a-form-item label="角色头像">
         <a-upload
@@ -225,6 +289,7 @@ const disableEdit = computed(() => {
           :show-file-list="false"
           :custom-request="handleAvatarUpload"
           :on-before-upload="beforeUploadCheck"
+          :disabled="isRoleAdminOnly || disableEdit"
         >
           <template #upload-button>
             <div
@@ -266,6 +331,7 @@ const disableEdit = computed(() => {
           placeholder="请输入角色名称"
           :max-length="20"
           show-word-limit
+          :disabled="isRoleAdminOnly"
         />
       </a-form-item>
       <a-form-item field="description" label="角色描述" asterisk-position="end">
@@ -275,17 +341,18 @@ const disableEdit = computed(() => {
           auto-size
           :max-length="50"
           show-word-limit
+          :disabled="isRoleAdminOnly"
         />
       </a-form-item>
       <a-form-item field="show_user_info" label="展示实名信息">
-        <a-switch v-model="editRoleForm.show_user_info" aria-label="展示实名信息" />
+        <a-switch v-model="editRoleForm.show_user_info" aria-label="展示实名信息" :disabled="isRoleAdminOnly" />
         <template #extra v-if="roleData.is_primary">管理认证始终显示在主角色，实名信息可单独隐藏。</template>
       </a-form-item>
       <a-form-item field="show_like" label="展示点赞内容">
-        <a-switch v-model="editRoleForm.show_like" />
+        <a-switch v-model="editRoleForm.show_like" :disabled="isRoleAdminOnly" />
       </a-form-item>
       <a-form-item field="is_shared" label="共享角色">
-        <a-switch v-model="editRoleForm.is_shared" :disabled="roleData.is_primary" />
+        <a-switch v-model="editRoleForm.is_shared" :disabled="roleData.is_primary || isRoleAdminOnly" />
         <template #extra v-if="roleData.is_primary">主角色用于个人身份，使用其他角色与同学共享。</template>
       </a-form-item>
       <a-form-item
@@ -299,6 +366,20 @@ const disableEdit = computed(() => {
           multiple
         />
       </a-form-item>
+      <a-form-item
+        v-if="isOwner && editRoleForm.is_shared && !roleData.is_primary"
+        field="admins_id"
+        label="角色管理员"
+      >
+        <a-select
+          v-model="editRoleForm.admins_id"
+          :options="memberAdminOptions"
+          multiple
+          allow-clear
+          placeholder="从共享成员中选择角色管理员"
+        />
+        <template #extra>角色管理员可添加或移除普通共享成员，新增成员请先加入上方共享用户列表（若刚加入未显示可保存后设置）。</template>
+      </a-form-item>
       <a-form-item label="外部链接">
         <a-space wrap>
           <a-space>
@@ -306,6 +387,7 @@ const disableEdit = computed(() => {
             <a-input
               v-model="editRoleForm.external_links.github"
               placeholder="GitHub主页链接"
+              :disabled="isRoleAdminOnly"
             />
           </a-space>
           <a-space>
@@ -313,6 +395,7 @@ const disableEdit = computed(() => {
             <a-input
               v-model="editRoleForm.external_links.wechat"
               placeholder="微信号"
+              :disabled="isRoleAdminOnly"
             />
           </a-space>
           <a-space>
@@ -320,6 +403,7 @@ const disableEdit = computed(() => {
             <a-input
               v-model="editRoleForm.external_links.qq"
               placeholder="QQ号"
+              :disabled="isRoleAdminOnly"
             />
           </a-space>
           <a-space>
@@ -327,6 +411,7 @@ const disableEdit = computed(() => {
             <a-input
               v-model="editRoleForm.external_links.twitter"
               placeholder="Twitter主页链接"
+              :disabled="isRoleAdminOnly"
             />
           </a-space>
           <a-space>
@@ -334,6 +419,7 @@ const disableEdit = computed(() => {
             <a-input
               v-model="editRoleForm.external_links.weibo"
               placeholder="微博主页链接"
+              :disabled="isRoleAdminOnly"
             />
           </a-space>
           <a-space>
@@ -341,6 +427,7 @@ const disableEdit = computed(() => {
             <a-input
               v-model="editRoleForm.external_links.douyin"
               placeholder="抖音主页链接"
+              :disabled="isRoleAdminOnly"
             />
           </a-space>
           <a-space>
@@ -348,6 +435,7 @@ const disableEdit = computed(() => {
             <a-input
               v-model="editRoleForm.external_links.other"
               placeholder="任意链接"
+              :disabled="isRoleAdminOnly"
             />
           </a-space>
         </a-space>
@@ -362,7 +450,7 @@ const disableEdit = computed(() => {
             保存
           </a-button>
           <a-popconfirm
-            v-if="!roleData.is_primary"
+            v-if="!roleData.is_primary && !isRoleAdminOnly"
             content="你确认要删除该角色吗？"
             @ok="deleteRole"
             type="warning"

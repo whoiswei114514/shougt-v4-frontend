@@ -149,9 +149,22 @@ onboarding_key, onboarding_virtual = add_key(onboarding)
 onboarding.admin_onboarding_required = True
 onboarding.save(update_fields=["admin_onboarding_required"])
 fixture["onboarding"] = browser_key(onboarding, onboarding_key, onboarding_virtual)
+contact_user, _ = make_user("ui_contact_card")
+contact_key, contact_virtual = add_key(contact_user)
+fixture["contact_card"] = browser_key(contact_user, contact_key, contact_virtual)
+phone_recipient, _ = make_user("ui_phone_recipient", roles=["base_admin"])
+add_key(phone_recipient)
+fixture["phone_recipient"] = {"user_id":phone_recipient.pk,"username":phone_recipient.username}
+for label in ("webusb", "webusb_rsa"):
+    web_recipient, _ = make_user("ui_" + label + "_recipient", roles=["base_admin"])
+    add_key(web_recipient)
+    fixture[label + "_recipient"] = {"user_id":web_recipient.pk,"username":web_recipient.username}
 import secrets
 fixture["piv_pair_code"] = secrets.token_urlsafe(18)
+fixture["piv_phone_pair_code"] = secrets.token_urlsafe(18)
+fixture["fido_pair_code"] = secrets.token_urlsafe(18)
 (work / "pki/bridge-test-ca-key.pem").write_bytes(pki.sub_key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
+(work / "pki/bridge-test-rsa-ca-key.pem").write_bytes(pki.rsa_sub_key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
 (work / "webauthn-counter.json").write_text(str(key.sign_count), encoding="utf-8")
 (work / "fixture.json").write_text(json.dumps(fixture), encoding="utf-8")
 print("Created isolated browser fixtures and test-only certificate authority")

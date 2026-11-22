@@ -6,6 +6,7 @@ import {
   ReviewStatusLabel,
 } from '../consts/options';
 import { PropType } from 'vue';
+import type { RoleBrief } from '../types';
 
 defineProps({
   reviewStatus: {
@@ -13,6 +14,10 @@ defineProps({
   },
   shareWith: {
     type: Number,
+  },
+  visibleRoles: {
+    type: Array as PropType<RoleBrief[]>,
+    default: undefined,
   },
   showReviewAccepted: {
     type: Boolean,
@@ -79,13 +84,18 @@ defineProps({
           [-1]: 'blue',
           [-2]: 'arcoblue',
           [-3]: 'purple',
+          [-4]: 'cyan',
           // @ts-ignore
         }[shareWith]
       "
       class="review-status"
       :size="size"
     >
-      {{ PostShareWithLabel[shareWith as keyof typeof PostShareWithLabel] }}
+      {{
+        shareWith === PostShareWith.roles && visibleRoles?.length
+          ? `${PostShareWithLabel[-4]} (${visibleRoles.map(role => role.name).join('、')})`
+          : PostShareWithLabel[shareWith as keyof typeof PostShareWithLabel]
+      }}
     </a-tag>
 
     <a-tag color="cyan" :size="size" v-if="hasNewVersion"> 新版本审核中 </a-tag>

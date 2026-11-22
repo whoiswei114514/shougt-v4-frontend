@@ -1,17 +1,18 @@
 import {test,expect,type Page,type BrowserContext} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import {keyCounter,saveKeyCounter} from './key-counters';
 const fixture=JSON.parse(fs.readFileSync(path.join(process.env.SHOUGT_UI_WORK!,'fixture.json'),'utf8'));
 const previews=process.env.SHOUGT_UI_PREVIEWS!;
 async function local(context:BrowserContext){await context.route('**/*',route=>{const u=new URL(route.request().url());return ['localhost','127.0.0.1','privileged.localhost'].includes(u.hostname)&&Number(u.port)>=10000?route.continue():route.abort();});}
 function installKey(key:any){
-  let counter=key.sign_count;
+  let counter=keyCounter(key);
   return async(page:Page)=>{
     const cdp=await page.context().newCDPSession(page);await cdp.send('WebAuthn.enable');
     const {authenticatorId}=await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',transport:'usb',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
     const credential={credentialId:key.credential_id,isResidentCredential:true,rpId:'localhost',privateKey:key.private_key,userHandle:Buffer.from(String(key.user_id)).toString('base64'),signCount:counter};
     await cdp.send('WebAuthn.addCredential',{authenticatorId,credential});
-    cdp.on('WebAuthn.credentialAsserted',({credential:value})=>counter=Math.max(counter,value.signCount));
+    cdp.on('WebAuthn.credentialAsserted',({credential:value})=>{counter=Math.max(counter,value.signCount);saveKeyCounter(key,counter);});
     await page.exposeFunction('__syncPivTestKey',async()=>{await cdp.send('WebAuthn.removeCredential',{authenticatorId,credentialId:key.credential_id});await cdp.send('WebAuthn.addCredential',{authenticatorId,credential:{...credential,signCount:counter}});});
     await page.addInitScript(()=>{const original=navigator.credentials.get.bind(navigator.credentials);navigator.credentials.get=async options=>{await (window as any).__syncPivTestKey();return original(options);};});
   };
@@ -22,7 +23,7 @@ async function login(page:Page,key:any){
   if(!fixture.certified_key){await page.locator('.auth-panel input[type=password]').fill(key.password);await page.getByRole('button',{name:'确认并继续'}).click();}
 }
 
-test('granting a privileged role opens an automatic PIV dialog without file exchange',async({browser})=>{
+for(const phone of [false,true])test(`granting a privileged role opens an automatic PIV dialog without file exchange (${phone?'phone NFC / RSA-2048':'USB / P-384'})`,async({browser})=>{
   const context=await browser.newContext({ignoreHTTPSErrors:true,clientCertificates:[{origin:'https://privileged.localhost:18443',certPath:fixture.issuer_certificate,keyPath:fixture.issuer_private_key}]});
   await local(context);const addKey=installKey(fixture.issuer),setup=new Map<Page,Promise<void>>();
   context.on('page',page=>setup.set(page,addKey(page)));
@@ -36,7 +37,7 @@ test('granting a privileged role opens an automatic PIV dialog without file exch
       const task=(async()=>{await setup.get(approval);await approval.waitForURL(/\/security\/approve/);await approval.getByRole('button',{name:'验证安全密钥并授权'}).click();})();
       approvals.push(task);task.catch(()=>{});
     });
-    await consolePage.locator('#search').fill(fixture.issuance_recipient.username);
+    await consolePage.locator('#search').fill((phone?fixture.phone_recipient:fixture.issuance_recipient).username);
     await consolePage.getByRole('button',{name:'查找用户'}).click();await consolePage.getByRole('button',{name:'选择用户'}).click();
     await consolePage.locator('#role-options input[value=global_reader]').check();
     await consolePage.getByRole('button',{name:'验证密钥并更新角色'}).click();
@@ -46,13 +47,26 @@ test('granting a privileged role opens an automatic PIV dialog without file exch
     for(const width of [1440,390]){
       await consolePage.setViewportSize({width,height:980});
       expect(await consolePage.locator('#issuance-dialog').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
-      await consolePage.screenshot({path:path.join(previews,`automatic-issuance-${width}.png`),animations:'disabled'});
+      await consolePage.screenshot({path:path.join(previews,`${phone?'phone-nfc':'automatic-issuance'}-${width}.png`),animations:'disabled'});
     }
-    await consolePage.locator('#piv-pair-code').fill(fixture.piv_pair_code);
+    await consolePage.locator('#piv-local-tool > summary').click();
+    if(phone)await consolePage.locator('#piv-port').fill('18448');
+    await consolePage.locator('#piv-pair-code').fill(phone?fixture.piv_phone_pair_code:fixture.piv_pair_code);
     await consolePage.getByRole('button',{name:'连接本机制卡工具'}).click();
     await expect(consolePage.locator('#piv-connection')).toContainText('已连接');
+    await expect(consolePage.locator('#piv-reader option:not([value="webusb:auto"])')).toHaveCount(3);
+    await expect(consolePage.locator('#piv-reader option').first()).toContainText('PIV + FIDO2');
+    await expect(consolePage.locator('#piv-algorithm')).toHaveValue('auto');
+    await expect(consolePage.locator('#piv-ca-slot')).toHaveValue('auto');
+    if(phone)await consolePage.locator('#piv-reader').selectOption('mobile:nfc');
     await consolePage.getByRole('button',{name:'开始制卡并授予角色'}).click();
+    await expect(consolePage.getByRole('heading',{name:'目标槽位已有证书'})).toBeVisible();
+    await expect(consolePage.locator('#piv-slot-message')).toContainText('9a');
+    await consolePage.screenshot({path:path.join(previews,`${phone?'occupied-phone-slot':'occupied-slot'}-390.png`),animations:'disabled'});
+    await consolePage.getByRole('button',{name:'改用槽位 9c'}).click();
     await expect(consolePage.locator('#issuance-state')).toContainText('签发完成，角色已授予',{timeout:45000});
+    await expect(consolePage.locator('#piv-target-slot')).toContainText('9c');
+    await expect(consolePage.locator('#piv-selected-algorithm')).toContainText(phone?'RSA-2048':'P-384');
     await expect(consolePage.getByRole('button',{name:'开始制卡并授予角色'})).toBeDisabled();
     await Promise.all(approvals);
   }finally{await context.close();}

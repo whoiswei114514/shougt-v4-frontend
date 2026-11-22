@@ -16,6 +16,8 @@ npm run build
 
 独立特权管理站不在本项目的 `/admin` 路由中。其独立前端、独立后端和整站客户端证书 TLS 位于相邻 `shougt-sa`。主站的 `/security/approve` 只负责用本次主站登录的密钥批准指定单次操作。代登录只能由该独立站的超级管理员发起，主站 `/security/impersonate` 兑换短期票据。
 
+登录、安全中心绑定与授权页支持接触式 FIDO2 智能卡，使用电脑上的 `backend.fido_bridge` 配对。普通 USB/NFC FIDO2 仍由浏览器 WebAuthn 处理。独立站的 CanoKey 制卡默认支持 WebUSB 网页直连，主站源码在 `src/scripts/webpiv/`；执行 `npm run build:smartcards` 将打包文件及依赖许可证同步到相邻 `shougt-sa`，`npm run test:smartcards` 验证真实密码学与软件 PIVApplet 的互操作。该测试不会枚举实体 USB/PCSC/ADB 设备。
+
 `public/logo.svg` 和 `src/assets/logo*.svg` 是新版矢量标识。`npm run generate-pwa-assets` 用 Resvg 生成各尺寸 PNG / ICO。原有登记信息不冒用：复制 `.env.example` 为 `.env.local`，填入本部署真实的备案号。媒体地址在 `src/consts` 中配置，需对应本站存储。
 
 安全中心位于“设置”的第五项“安全”；`/security/` 兼容跳转到 `/settings/?tab=security`。登录页仅保留登录表单，已移除钥匙动画和左侧宣传内容；管理操作确认也不再显示该动画。校友墙使用上海海洋大学的说明文案。账号权限变化导致会话失效时，前端清理旧凭据并返回登录。
@@ -48,7 +50,7 @@ npm run test:e2e
 
 `tests/e2e/redteam.spec.ts` 在隔离数据库中模拟 HTML 注入、令牌及角色伪造、越权任命、缺失客户端证书、伪造登录票据、跨站请求、超长请求和路径探测。测试只使用回环高端口，不接触真实账号的密码、密钥或认证器种子。
 
-本地审计结果与验收边界见相邻后端的 `SECURITY-AUDIT.md`；常规套件 23 项通过，独立高可信配置补齐 1 项专用场景，合计覆盖 24 项；自动制卡与首次配置也在高可信配置中复测。深层嵌套令牌和 JSON 请求也通过实际 HTTP 代理验证，不再返回 500。
+本地审计结果与验收边界见相邻后端的 `SECURITY-AUDIT.md`；当前常规浏览器套件 27 项通过，另 1 项仅在高可信配置启用。接触式 FIDO2、WebUSB 制卡、工具制卡和首次配置也在高可信配置中复测。深层嵌套令牌和 JSON 请求通过实际 HTTP 代理验证，不再返回 500。
 
 安全中心按后端返回的本次登录凭据等级显示金色认证，悬停、聚焦或点击可查看 FIPS / CC 等具体等级；支持深色模式和减少动画偏好。只有已核验达到规定等级的凭据显示金色，普通密钥保持绿色。
 

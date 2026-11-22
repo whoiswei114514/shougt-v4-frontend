@@ -5,16 +5,25 @@ import { Message } from '@arco-design/web-vue';
 import router from '../../router';
 import ArcoDescriptions from '../../components/ArcoDescriptions.vue';
 import { RoleFull } from '../../types';
+import { formatDatetime } from '../../scripts/time';
 
 const data = ref({} as RoleFull),
-  is_active = ref(true),
+  banMode = ref<'active' | 'temporary' | 'permanent'>('active'),
+  bannedUntil = ref<number | undefined>(undefined),
   loading = ref(false),
   getData = () => {
     loading.value = true;
     Axios.get(`/admin/role/${router.currentRoute.value.params.id}/`)
       .then(res => {
         data.value = res.data;
-        is_active.value = data.value.is_active;
+        const until = data.value.banned_until;
+        const hasFuture = Boolean(until && new Date(until).getTime() > Date.now());
+        banMode.value = !data.value.is_active
+          ? 'permanent'
+          : hasFuture
+            ? 'temporary'
+            : 'active';
+        bannedUntil.value = hasFuture ? new Date(until as string).getTime() : undefined;
       })
       .catch(errorHandler)
       .finally(() => {
@@ -23,11 +32,46 @@ const data = ref({} as RoleFull),
   };
 getData();
 
+const setBanDuration = (hours: number) => {
+  banMode.value = 'temporary';
+  bannedUntil.value = Date.now() + hours * 3600 * 1000;
+};
+
+const saveBan = () => {
+  let payload: Record<string, any>;
+  if (banMode.value === 'active') {
+    payload = { is_active: true };
+  } else if (banMode.value === 'permanent') {
+    payload = { is_active: false };
+  } else {
+    if (!bannedUntil.value || bannedUntil.value <= Date.now()) {
+      Message.error('请选择晚于当前时间的临时封禁截止时间');
+      return;
+    }
+    payload = { banned_until: new Date(bannedUntil.value).toISOString() };
+  }
+  loading.value = true;
+  Axios.post(`/admin/role/${router.currentRoute.value.params.id}/ban/`, payload)
+    .then(res => {
+      Message.success(res.data?.msg || '封禁状态修改成功');
+      getData();
+    })
+    .catch(errorHandler)
+    .finally(() => {
+      loading.value = false;
+    });
+};
+
 const save = () => {
   loading.value = true;
-  Axios.put(`/admin/role/${router.currentRoute.value.params.id}/`, data.value)
+  Axios.patch(`/admin/role/${router.currentRoute.value.params.id}/`, {
+    editable: data.value.editable,
+    verify: data.value.verify,
+    show_like: data.value.show_like,
+  })
     .then(() => {
       Message.success('保存成功');
+      getData();
     })
     .catch(errorHandler)
     .finally(() => {
@@ -53,10 +97,19 @@ const save = () => {
     ]"
   />
 
-  <div v-if="data.members?.length > 0">
+  <div v-if="data.members?.length">
     <a-typography-title :heading="5"> 成员 </a-typography-title>
-    <a-space>
+    <a-space wrap>
       <a-tag v-for="user in data.members" :key="user.id" size="large">
+        {{ user.real_name }}({{ user.username }})
+      </a-tag>
+    </a-space>
+  </div>
+
+  <div v-if="data.admins?.length" style="margin-top: 16px">
+    <a-typography-title :heading="5"> 角色管理员 </a-typography-title>
+    <a-space wrap>
+      <a-tag v-for="user in data.admins" :key="user.id" color="arcoblue" size="large">
         {{ user.real_name }}({{ user.username }})
       </a-tag>
     </a-space>
@@ -65,9 +118,6 @@ const save = () => {
   <a-divider />
 
   <a-form :model="data" auto-label-width>
-    <a-form-item label="可用">
-      <a-switch v-model="data.is_active" />
-    </a-form-item>
     <a-form-item label="允许编辑">
       <a-switch v-model="data.editable" />
     </a-form-item>
@@ -79,7 +129,48 @@ const save = () => {
     </a-form-item>
     <a-form-item>
       <a-button type="primary" @click="save" :loading="loading">
-        保存
+        保存信息
+      </a-button>
+    </a-form-item>
+  </a-form>
+
+  <a-divider />
+
+  <a-typography-title :heading="5"> 封禁设置 </a-typography-title>
+  <p v-if="data.banned_until && new Date(data.banned_until).getTime() > Date.now()">
+    当前状态：<a-tag color="orange">临时封禁至 {{ formatDatetime(data.banned_until) }}</a-tag>
+  </p>
+  <p v-else-if="data.is_active === false">
+    当前状态：<a-tag color="red">永久封禁</a-tag>
+  </p>
+  <a-form :model="data" auto-label-width>
+    <a-form-item label="封禁方式">
+      <a-radio-group v-model="banMode" type="button">
+        <a-radio value="active">正常使用</a-radio>
+        <a-radio value="temporary">临时封禁</a-radio>
+        <a-radio value="permanent">永久封禁</a-radio>
+      </a-radio-group>
+    </a-form-item>
+    <a-form-item v-if="banMode === 'temporary'" label="截止时间">
+      <a-space direction="vertical" style="width: 100%">
+        <a-date-picker
+          v-model="bannedUntil"
+          show-time
+          value-format="timestamp"
+          placeholder="选择封禁截止时间"
+        />
+        <a-space wrap>
+          <a-button size="mini" @click="setBanDuration(1)">1小时</a-button>
+          <a-button size="mini" @click="setBanDuration(24)">1天</a-button>
+          <a-button size="mini" @click="setBanDuration(72)">3天</a-button>
+          <a-button size="mini" @click="setBanDuration(24 * 7)">7天</a-button>
+          <a-button size="mini" @click="setBanDuration(24 * 30)">30天</a-button>
+        </a-space>
+      </a-space>
+    </a-form-item>
+    <a-form-item>
+      <a-button type="primary" status="danger" @click="saveBan" :loading="loading">
+        保存封禁设置
       </a-button>
     </a-form-item>
   </a-form>

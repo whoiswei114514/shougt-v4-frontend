@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, h } from 'vue';
 import { Axios, errorHandler } from '../../axios';
-import { Link } from '@arco-design/web-vue';
+import { Link, Tag } from '@arco-design/web-vue';
 import { RouterLink } from 'vue-router';
 import Avatar from '../../components/Avatar.vue';
+import { formatDatetime } from '../../scripts/time';
 
 const search = ref('');
 
@@ -55,6 +56,18 @@ const columns = [
     dataIndex: 'user_info',
     render: ({ record }: { record: any }) => {
       return `${record.user_info.real_name}(${record.user_info.username})`;
+    },
+  },
+  {
+    title: '状态',
+    render: ({ record }: { record: any }) => {
+      if (record.banned_until && new Date(record.banned_until).getTime() > Date.now()) {
+        return h(Tag, { color: 'orange' }, () => `临时封禁至 ${formatDatetime(record.banned_until)}`);
+      }
+      if (record.is_active === false) {
+        return h(Tag, { color: 'red' }, () => '永久封禁');
+      }
+      return h(Tag, { color: 'green' }, () => '正常');
     },
   },
   {

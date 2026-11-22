@@ -35,8 +35,9 @@ const postForm = reactive({
   allow_comment: true,
   post_type: PostType.moment,
   share_with: PostShareWith.public,
+  visible_role_ids: [] as number[],
   images: [] as number[],
-  video_id: null,
+  video_id: null as number | null,
 });
 
 const imageFileList = ref<FileItem[]>([]);
@@ -103,7 +104,7 @@ const publishLoading = ref(false),
             id: item.id,
           },
         }));
-        if (res.data.video_id) {
+        if (res.data.video_id && res.data.video_item) {
           videoFileList.value = [
             {
               uid: res.data.video_item.id,
@@ -115,13 +116,15 @@ const publishLoading = ref(false),
           ];
         }
         postForm.post_id = res.data.post.id;
+        postForm.author = res.data.post.author;
         postForm.title = res.data.title;
         postForm.content = res.data.content;
         postForm.allow_comment = res.data.allow_comment;
         postForm.post_type = res.data.post.type;
         postForm.media_type = res.data.post.media_type;
         postForm.share_with = res.data.share_with;
-        postForm.video_id = res.data.video_item.id;
+        postForm.visible_role_ids = res.data.visible_role_ids ?? [];
+        postForm.video_id = res.data.video_item?.id ?? null;
         if (store.roleId !== res.data.post.author) {
           Message.error('当前身份与发布者不符');
         }
@@ -144,6 +147,15 @@ const publishLoading = ref(false),
     ) {
       Message.error('你还没有上传视频');
       return;
+    } else if (
+      postForm.share_with === PostShareWith.roles &&
+      postForm.visible_role_ids.length === 0
+    ) {
+      Message.error('请至少选择一个可见角色');
+      return;
+    }
+    if (postForm.share_with !== PostShareWith.roles) {
+      postForm.visible_role_ids = [];
     }
 
     publishLoading.value = true;
@@ -320,7 +332,30 @@ if (route.query.id) {
             <a-radio :value="PostShareWith.user"> 登录用户可见 </a-radio>
             <a-radio :value="PostShareWith.student"> 仅学生可见 </a-radio>
             <a-radio :value="PostShareWith.private"> 仅我可见 </a-radio>
+            <a-radio :value="PostShareWith.roles"> 指定角色可见 </a-radio>
           </a-radio-group>
+        </a-form-item>
+
+        <a-form-item
+          v-if="postForm.share_with === PostShareWith.roles"
+          label="可见角色"
+        >
+          <a-select
+            v-model="postForm.visible_role_ids"
+            multiple
+            allow-clear
+            placeholder="请选择自己拥有或所在的角色"
+          >
+            <a-option
+              v-for="role in store.roles.filter(item => item.is_active !== false)"
+              :key="role.id"
+              :value="role.id"
+              :label="role.name"
+            >
+              {{ role.name }} (ID:{{ role.id }})
+            </a-option>
+          </a-select>
+          <template #extra>仅所选角色的活跃成员及发布者可见；范围限于你拥有或加入的角色。</template>
         </a-form-item>
 
         <a-form-item label="允许评论">

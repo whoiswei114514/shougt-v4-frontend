@@ -400,8 +400,13 @@ const handleLogout = async () => {
           </a-badge>
           {{ role.name }}
           <a-tag size="small"> ID:{{ role.id }} </a-tag>
-          <a-tag v-if="role.is_active === false" size="small" color="red">
-            封禁中
+          <a-tag
+            v-if="role.is_active === false"
+            size="small"
+            :color="role.banned_until ? 'orange' : 'red'"
+            :title="role.banned_until ? `临时封禁至 ${role.banned_until}` : '永久封禁'"
+          >
+            {{ role.banned_until ? '临时封禁' : '封禁中' }}
           </a-tag>
         </a-space>
       </a-option>

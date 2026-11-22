@@ -8,6 +8,7 @@ import router from './router';
 import { useStore } from './stores';
 import { sharedFunctions } from './stores';
 import Axios from './axios';
+import SmartCardConnect from './components/SmartCardConnect.vue';
 const CaptchaModal = defineAsyncComponent(
   () => import('./components/CaptchaModal.vue')
 );
@@ -126,5 +127,6 @@ onMounted(() => {
     <Suspense> <DonateCoin /> </Suspense>
     <Suspense> <NotificationList /> </Suspense>
     <Suspense> <CaptchaModal /> </Suspense>
+    <SmartCardConnect />
   </a-config-provider>
 </template>

@@ -1,4 +1,5 @@
 import Axios from '../axios';
+import { preferredSmartCard, preferSmartCard, smartCardCredential } from './smartcard';
 
 type JsonOptions = {
   challenge_id: string;
@@ -42,7 +43,9 @@ export function serializeCredential(credential: PublicKeyCredential) {
   }};
 }
 
-export async function createCredential(options: JsonOptions) {
+export async function createCredential(options: JsonOptions, connection:'browser'|'smartcard'=preferredSmartCard()?'smartcard':'browser', rememberPreference=true) {
+  if(connection==='smartcard')return {challenge_id:options.challenge_id,credential:await smartCardCredential('create',options.publicKey,rememberPreference)};
+  if(rememberPreference)preferSmartCard(false);
   ensureSupported();
   const source = options.publicKey;
   const publicKey = {
@@ -54,7 +57,9 @@ export async function createCredential(options: JsonOptions) {
   return {challenge_id: options.challenge_id, credential: serializeCredential(credential)};
 }
 
-export async function getAssertion(options: JsonOptions) {
+export async function getAssertion(options: JsonOptions, connection:'browser'|'smartcard'=preferredSmartCard()?'smartcard':'browser', rememberPreference=true) {
+  if(connection==='smartcard')return {challenge_id:options.challenge_id,credential:await smartCardCredential('get',options.publicKey,rememberPreference)};
+  if(rememberPreference)preferSmartCard(false);
   ensureSupported();
   const source = options.publicKey;
   const publicKey = {...source, challenge: decode(source.challenge),

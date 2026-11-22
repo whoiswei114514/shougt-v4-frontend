@@ -33,6 +33,7 @@ export const PostTypeLabel = {
 };
 
 export const PostShareWith = {
+  roles: -4,
   private: -3,
   student: -2,
   user: -1,
@@ -40,6 +41,7 @@ export const PostShareWith = {
 };
 
 export const PostShareWithLabel = {
+  [-4]: '指定角色可见',
   [-3]: '仅自己可见（角色成员）',
   [-2]: '仅学生可见',
   [-1]: '校内可见',

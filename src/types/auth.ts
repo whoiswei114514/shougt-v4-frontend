@@ -74,6 +74,8 @@ export interface User extends UserBrief {
   school: string;
   date_joined: string;
   is_active: boolean;
+  banned_until?: string | null;
+  permanently_banned?: boolean;
   email: string;
   email_verified_at: string | null;
   real_name_verified_at: string | null;
@@ -92,6 +94,8 @@ export interface RoleBrief {
   is_private?: boolean;
   is_primary?: boolean;
   is_active?: boolean;
+  banned_until?: string | null;
+  permanently_banned?: boolean;
   unread_notification_count?: number;
 }
 export interface Role extends RoleBrief {
@@ -110,6 +114,11 @@ export interface RoleFull extends Role {
   follower_count: number;
   following_count: number;
   members: UserBrief[];
+  admins?: UserBrief[];
+  is_owner?: boolean;
+  is_admin?: boolean;
+  banned_until?: string | null;
+  permanently_banned?: boolean;
   external_links: {
     github: string;
     wechat: string;

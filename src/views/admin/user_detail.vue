@@ -12,7 +12,8 @@ import { useStore } from '../../stores';
 const store = useStore();
 
 const currentUser = ref({} as AuthResponse),
-  is_active = ref(true),
+  banMode = ref<'active' | 'temporary' | 'permanent'>('active'),
+  bannedUntil = ref<number | undefined>(undefined),
   loadingGetUser = ref(false),
   getUser = () => {
     loadingGetUser.value = true;
@@ -21,7 +22,14 @@ const currentUser = ref({} as AuthResponse),
         currentUser.value = res.data;
         noReview.value = Boolean(currentUser.value.permission.no_review);
         quota.value = structuredClone(res.data.quota);
-        is_active.value = currentUser.value.user.is_active;
+        const until = currentUser.value.user.banned_until;
+        const hasFuture = Boolean(until && new Date(until).getTime() > Date.now());
+        banMode.value = !currentUser.value.user.is_active
+          ? 'permanent'
+          : hasFuture
+            ? 'temporary'
+            : 'active';
+        bannedUntil.value = hasFuture ? new Date(until as string).getTime() : undefined;
       })
       .catch(errorHandler)
       .finally(() => {
@@ -64,12 +72,30 @@ const quota = ref<Record<string, number>>({}),
       .catch(errorHandler);
   };
 
+const setBanDuration = (hours: number) => {
+  banMode.value = 'temporary';
+  bannedUntil.value = Date.now() + hours * 3600 * 1000;
+};
+
 const saveActiveInfo = () => {
-  Axios.post(`/admin/user/${currentUser.value.user.id}/ban/`, {
-    is_active: is_active.value,
-  }).then(() => {
-    Message.success('封禁状态修改成功');
-  });
+  let payload: Record<string, any>;
+  if (banMode.value === 'active') {
+    payload = { is_active: true };
+  } else if (banMode.value === 'permanent') {
+    payload = { is_active: false };
+  } else {
+    if (!bannedUntil.value || bannedUntil.value <= Date.now()) {
+      Message.error('请选择晚于当前时间的临时封禁截止时间');
+      return;
+    }
+    payload = { banned_until: new Date(bannedUntil.value).toISOString() };
+  }
+  Axios.post(`/admin/user/${currentUser.value.user.id}/ban/`, payload)
+    .then(res => {
+      Message.success(res.data?.msg || '封禁状态修改成功');
+      getUser();
+    })
+    .catch(errorHandler);
 };
 
 const coinChangeForm = reactive({
@@ -172,11 +198,38 @@ const coinChangeForm = reactive({
   <a-divider />
 
   <div>
-    <a-typography-title :heading="5"> 封禁 </a-typography-title>
-    <a-form-item label="允许使用">
-      <a-switch v-model:model-value="is_active" />
+    <a-typography-title :heading="5"> 封禁设置 </a-typography-title>
+    <p v-if="currentUser?.user?.banned_until && new Date(currentUser.user.banned_until).getTime() > Date.now()">
+      当前状态：<a-tag color="orange">临时封禁至 {{ formatDatetime(currentUser.user.banned_until) }}</a-tag>
+    </p>
+    <p v-else-if="currentUser?.user?.is_active === false">
+      当前状态：<a-tag color="red">永久封禁</a-tag>
+    </p>
+    <a-form-item label="封禁方式">
+      <a-radio-group v-model="banMode" type="button">
+        <a-radio value="active">正常使用</a-radio>
+        <a-radio value="temporary">临时封禁</a-radio>
+        <a-radio value="permanent">永久封禁</a-radio>
+      </a-radio-group>
     </a-form-item>
-    <a-button type="primary" @click="saveActiveInfo"> 修改 </a-button>
+    <a-form-item v-if="banMode === 'temporary'" label="截止时间">
+      <a-space direction="vertical" style="width: 100%">
+        <a-date-picker
+          v-model="bannedUntil"
+          show-time
+          value-format="timestamp"
+          placeholder="选择封禁截止时间"
+        />
+        <a-space wrap>
+          <a-button size="mini" @click="setBanDuration(1)">1小时</a-button>
+          <a-button size="mini" @click="setBanDuration(24)">1天</a-button>
+          <a-button size="mini" @click="setBanDuration(72)">3天</a-button>
+          <a-button size="mini" @click="setBanDuration(24 * 7)">7天</a-button>
+          <a-button size="mini" @click="setBanDuration(24 * 30)">30天</a-button>
+        </a-space>
+      </a-space>
+    </a-form-item>
+    <a-button type="primary" status="danger" @click="saveActiveInfo"> 保存封禁设置 </a-button>
   </div>
 </template>
 

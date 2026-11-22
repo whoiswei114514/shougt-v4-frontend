@@ -22,14 +22,15 @@ process.once('SIGINT',()=>{stop();process.exit(130)});
 let code=1;
 try{
   if(serveDist&&!existsSync(path.join(front,'dist/index.html')))throw new Error('Build the frontend before using SHOUGT_UI_SERVE_DIST=1');
-  for(const port of [15173,18000,18443,18444])await freePort(port);
+  for(const port of [15173,18000,18443,18444,18445,18448])await freePort(port);
   const setup=spawnSync(python,[path.join(front,'tests/setup_ui.py')],{cwd:front,env,stdio:'inherit',windowsHide:true});
   if(setup.status!==0)throw new Error('Fixture setup failed');
   start(python,['-u','manage.py','runserver','127.0.0.1:18000','--noreload','--settings=gt.ui_test_settings'],back,'backend.log');
   start(consolePython,['-u','-m','backend.server','--config',path.join(work,'console.json')],consoleApp,'console.log');
   start(consolePython,['-u',path.join(front,'tests/piv_fixture_bridge.py')],consoleApp,'piv-bridge.log');
+  start(consolePython,['-u',path.join(front,'tests/fido_fixture_bridge.py')],consoleApp,'fido-bridge.log');
   start(process.execPath,[path.join(front,'node_modules/vite/bin/vite.js'),...(serveDist?['preview']:[]),'--host','127.0.0.1','--port','15173','--strictPort'],front,'vite.log');
-  await Promise.all([waitPort(15173),waitPort(18000),waitPort(18443),waitPort(18444)]);
+  await Promise.all([waitPort(15173),waitPort(18000),waitPort(18443),waitPort(18444),waitPort(18445),waitPort(18448)]);
   const tests=spawn(process.execPath,[path.join(front,'node_modules/@playwright/test/cli.js'),'test',...process.argv.slice(2)],{cwd:front,env,stdio:'inherit',windowsHide:true});
   code=await new Promise(resolve=>tests.once('exit',status=>resolve(status??1)));
 }catch(error){console.error(error.message);}finally{stop();}

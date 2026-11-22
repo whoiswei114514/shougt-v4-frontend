@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, h, reactive, computed } from 'vue';
 import { Axios, errorHandler } from '../../axios';
-import { Link, Message } from '@arco-design/web-vue';
+import { Link, Message, Tag } from '@arco-design/web-vue';
 import { RouterLink } from 'vue-router';
 import { SchoolLabel } from '../../consts/options';
+import { formatDatetime } from '../../scripts/time';
 
 const search = ref('');
 
@@ -55,6 +56,18 @@ const columns = [
     title: '学校',
     render: ({ record }: { record: any }) => {
       return SchoolLabel[record.school as keyof typeof SchoolLabel];
+    },
+  },
+  {
+    title: '状态',
+    render: ({ record }: { record: any }) => {
+      if (record.banned_until && new Date(record.banned_until).getTime() > Date.now()) {
+        return h(Tag, { color: 'orange' }, () => `临时封禁至 ${formatDatetime(record.banned_until)}`);
+      }
+      if (record.is_active === false) {
+        return h(Tag, { color: 'red' }, () => '永久封禁');
+      }
+      return h(Tag, { color: 'green' }, () => '正常');
     },
   },
   {

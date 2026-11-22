@@ -10,7 +10,7 @@ export interface PostFull {
   alias: string;
   images: number[];
   image_items: { id: number; key: string }[];
-  video_item: { id: number; play_token: string; vcode: string };
+  video_item: { id: number; play_token: string; vcode: string; name?: string } | null;
   tags: string[];
   read_count: number;
   comment_count: number;
@@ -24,6 +24,7 @@ export interface PostFull {
   review_status: number;
   review_message: any[];
   share_with: number;
+  visible_roles?: RoleBrief[];
   pinned: boolean;
   create_time: string;
   edit_time: string;
