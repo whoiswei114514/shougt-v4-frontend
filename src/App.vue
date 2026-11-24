@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, defineAsyncComponent } from 'vue';
+import { computed, onMounted, ref, watch, defineAsyncComponent } from 'vue';
 import Menu from './components/Menu.vue';
 import { themeInit } from './scripts/init';
 import { isMobile } from './consts/isMobile';
@@ -22,6 +22,9 @@ const NotificationList = defineAsyncComponent(
 );
 const IssuanceModal = defineAsyncComponent(
   () => import('./views/security/Issuance.vue')
+);
+const AdminOnboardingModal = defineAsyncComponent(
+  () => import('./views/security/AdminOnboardingModal.vue')
 );
 
 const route = useRoute();
@@ -48,10 +51,51 @@ themeInit();
 
 const showMenuDrawer = ref(false);
 const showIssuanceModal = ref(false);
+const showAdminOnboardingModal = ref(false);
+const autoOpenedOnboardingSession = ref('');
+
+const needsAdminSetup = computed(() =>
+  Boolean(
+    store.loggedIn &&
+    store.security &&
+    store.security.session_scope !== 'impersonation' &&
+    (
+      store.security.admin_onboarding_required ||
+      (store.security.is_management && !store.security.admin_setup_ready) ||
+      (store.security.is_admin_candidate && !store.security.advanced_verified)
+    )
+  )
+);
 
 sharedFunctions.openIssuanceModal = () => {
   showIssuanceModal.value = true;
 };
+
+sharedFunctions.openAdminOnboardingModal = () => {
+  const sessionId = store.authorization?.payload?.session_id || '';
+  if (sessionId) autoOpenedOnboardingSession.value = sessionId;
+  showAdminOnboardingModal.value = true;
+};
+
+watch(
+  [needsAdminSetup, () => store.authorization?.payload?.session_id || '', () => route.name],
+  ([needed, sessionId, routeName]) => {
+    if (!needed) {
+      showAdminOnboardingModal.value = false;
+      if (!store.loggedIn) autoOpenedOnboardingSession.value = '';
+      return;
+    }
+    if (routeName === 'email' || routeName === 'login' || routeName === 'register') {
+      if (routeName === 'email') showAdminOnboardingModal.value = false;
+      return;
+    }
+    if (sessionId && autoOpenedOnboardingSession.value !== sessionId) {
+      autoOpenedOnboardingSession.value = sessionId;
+      showAdminOnboardingModal.value = true;
+    }
+  },
+  { immediate: true }
+);
 
 onMounted(() => {
   sharedFunctions.scrollTop = () => {
@@ -117,6 +161,20 @@ onMounted(() => {
           <a-link @click="endImpersonation">结束代登录</a-link>
         </a-alert>
         <a-alert
+          v-if="!showAdminOnboardingModal && needsAdminSetup"
+          type="warning"
+          style="margin:12px auto 0;max-width:1000px"
+        >
+          <template v-if="store.security?.is_management">
+            你已获得管理身份，但尚未完成外置安全密钥绑定与实名进阶认证。完成前仅保留身份标识，暂不具备实际管理权限。
+            <a-link @click="sharedFunctions.openAdminOnboardingModal()" style="margin-left:8px;font-weight:600">打开配置引导</a-link>
+          </template>
+          <template v-else>
+            管理员认证入口已开放，请完成外置安全密钥绑定与实名进阶认证。
+            <a-link @click="sharedFunctions.openAdminOnboardingModal()" style="margin-left:8px;font-weight:600">打开认证引导</a-link>
+          </template>
+        </a-alert>
+        <a-alert
           v-if="!showIssuanceModal && store.security?.admin_access && (store.security?.pending_sign_requests_count || 0) > 0"
           type="info"
           style="margin:12px auto 0;max-width:1000px"
@@ -168,6 +226,22 @@ onMounted(() => {
     >
       <Suspense>
         <IssuanceModal modal @close="showIssuanceModal = false" />
+      </Suspense>
+    </a-modal>
+    <a-modal
+      v-model:visible="showAdminOnboardingModal"
+      :hide-title="true"
+      :footer="false"
+      :closable="false"
+      :width="isMobile ? '96vw' : 680"
+      :body-style="{ padding: 0 }"
+      unmount-on-close
+    >
+      <Suspense>
+        <AdminOnboardingModal
+          @close="showAdminOnboardingModal = false"
+          @completed="showAdminOnboardingModal = false"
+        />
       </Suspense>
     </a-modal>
   </a-config-provider>

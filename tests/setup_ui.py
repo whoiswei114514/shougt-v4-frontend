@@ -164,6 +164,15 @@ add_key(onboarding)
 onboarding.admin_onboarding_required = True
 onboarding.save(update_fields=["admin_onboarding_required"])
 fixture["onboarding"] = browser_key(onboarding, onboarding_key, onboarding_virtual)
+unverified_admin, _ = make_user("ui_unverified_admin", roles=["admin_forum"])
+unverified_admin.real_name = ""
+unverified_admin.real_name_verified_at = None
+unverified_admin.advanced_verified_at = None
+unverified_admin.admin_onboarding_required = True
+unverified_admin.save(update_fields=["real_name", "real_name_verified_at", "advanced_verified_at", "admin_onboarding_required"])
+unverified_key, unverified_virtual = add_key(unverified_admin)
+add_key(unverified_admin)
+fixture["unverified_admin"] = browser_key(unverified_admin, unverified_key, unverified_virtual)
 contact_user, _ = make_user("ui_contact_card")
 contact_key, contact_virtual = add_key(contact_user)
 fixture["contact_card"] = browser_key(contact_user, contact_key, contact_virtual)

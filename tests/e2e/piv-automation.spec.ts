@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {keyCounter,saveKeyCounter} from './key-counters';
 const fixture=JSON.parse(fs.readFileSync(path.join(process.env.SHOUGT_UI_WORK!,'fixture.json'),'utf8'));
-const previews=process.env.SHOUGT_UI_PREVIEWS!;
+const previews=process.env.SHOUGT_UI_PREVIEWS || path.join(process.env.SHOUGT_UI_WORK!,'previews');
+fs.mkdirSync(previews,{recursive:true});
 async function local(context:BrowserContext){await context.route('**/*',route=>{const u=new URL(route.request().url());return ['localhost','127.0.0.1','privileged.localhost'].includes(u.hostname)&&Number(u.port)>=10000?route.continue():route.abort();});}
 function installKey(key:any){
   let counter=keyCounter(key);
@@ -74,9 +75,10 @@ for(const phone of [false,true])test(`granting a privileged role opens an automa
 
 test('new administrator first login guides FIDO2 setup before management access',async({page,context})=>{
   await local(context);await installKey(fixture.onboarding)(page);await login(page,fixture.onboarding);
-  await expect(page).toHaveURL(/\/settings\/\?tab=security/);
+  await expect(page).toHaveURL('http://localhost:15173/');
   await expect(page.getByRole('heading',{name:'欢迎加入管理团队'})).toBeVisible();
   await expect(page.locator('.arco-message')).toHaveCount(0);
+  await expect(page.locator('.arco-menu').getByText('管理',{exact:true})).toHaveCount(0);
   for(const width of [1440,390]){
     await page.setViewportSize({width,height:980});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
@@ -91,4 +93,6 @@ test('new administrator first login guides FIDO2 setup before management access'
   expect((await response).status()).toBe(200);
   await expect(page.getByRole('heading',{name:'欢迎加入管理团队'})).toBeHidden();
   await page.reload();await expect(page.getByRole('heading',{name:'欢迎加入管理团队'})).toBeHidden();
+  await page.setViewportSize({width:1440,height:980});
+  await expect(page.locator('.arco-layout-header .arco-menu').getByText('管理',{exact:true})).toBeVisible();
 });

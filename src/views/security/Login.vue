@@ -6,6 +6,7 @@ import Axios from '../../axios';
 import { saveUserInfo } from '../../scripts/userInfo';
 import { getAssertion, securityError } from '../../scripts/webauthn';
 import { sanitizeSafeNextPath } from '../../scripts/securityUrls';
+import { sharedFunctions } from '../../stores';
 import Hccaptcha from '../../components/Hccaptcha.vue';
 import '../../styles/auth.scss';
 
@@ -21,9 +22,16 @@ async function receive(data: any) {
   if (data.factor_required) { factor.value=data; factorMethod.value=data.methods[0]; return; }
   saveUserInfo(data, true, form.remember_me);
   const next = sanitizeSafeNextPath(route.query.next, window.location.origin);
-  if (data.security?.session_scope === 'enrollment') {
-    Message.success('请完成账号安全配置');
-    await router.replace('/settings/?tab=security');
+  const needsOnboarding = Boolean(
+    data.security?.session_scope === 'enrollment' ||
+    data.security?.admin_onboarding_required ||
+    (data.security?.is_management && !data.security?.admin_setup_ready) ||
+    (data.security?.is_admin_candidate && !data.security?.advanced_verified)
+  );
+  if (needsOnboarding) {
+    const destination = next.startsWith('/admin/') || next.startsWith('/zero-width/') ? '/' : next;
+    await router.replace(destination);
+    sharedFunctions.openAdminOnboardingModal();
     return;
   }
   if ((data.security?.signed_issuance_ready_count || 0) > 0) {

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHmac } from 'node:crypto';
 import {checkWatermarks,analyzeWatermarkFile} from './watermark-checks';
+import {keyCounter,saveKeyCounter} from './key-counters';
 const work=process.env.SHOUGT_UI_WORK!;
 const fixture=JSON.parse(fs.readFileSync(path.join(work,'fixture.json'),'utf8'));
 const previews=process.env.SHOUGT_UI_PREVIEWS || path.join(work,'previews');
@@ -18,6 +19,16 @@ async function authenticator(page:Page){
   cdp.on('WebAuthn.credentialAsserted',({credential})=>{if(credential.credentialId===fixture.root.credential_id){latestCounter=Math.max(latestCounter,credential.signCount);fs.writeFileSync(counterPath,JSON.stringify(latestCounter));}});
   await page.exposeFunction('__syncTestKey',async()=>{await cdp.send('WebAuthn.removeCredential',{authenticatorId,credentialId:fixture.root.credential_id});await cdp.send('WebAuthn.addCredential',{authenticatorId,credential:{...rootCredential,signCount:latestCounter}});});
   await page.addInitScript(()=>{const get=navigator.credentials.get.bind(navigator.credentials);navigator.credentials.get=async options=>{await (window as any).__syncTestKey();return get(options);};});
+}
+async function installKeyFor(page:Page,key:any){
+  let counter=keyCounter(key);
+  const cdp=await page.context().newCDPSession(page);await cdp.send('WebAuthn.enable');
+  const {authenticatorId}=await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',transport:'usb',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
+  const cred={credentialId:key.credential_id,isResidentCredential:true,rpId:'localhost',privateKey:key.private_key,userHandle:Buffer.from(String(key.user_id)).toString('base64'),signCount:counter};
+  await cdp.send('WebAuthn.addCredential',{authenticatorId,credential:cred});
+  cdp.on('WebAuthn.credentialAsserted',({credential})=>{if(credential.credentialId===key.credential_id){counter=Math.max(counter,credential.signCount);saveKeyCounter(key,counter);}});
+  await page.exposeFunction('__syncCustomTestKey',async()=>{await cdp.send('WebAuthn.removeCredential',{authenticatorId,credentialId:key.credential_id});await cdp.send('WebAuthn.addCredential',{authenticatorId,credential:{...cred,signCount:counter}});});
+  await page.addInitScript(()=>{const get=navigator.credentials.get.bind(navigator.credentials);navigator.credentials.get=async options=>{await (window as any).__syncCustomTestKey();return get(options);};});
 }
 async function screenshot(page:Page,name:string){await page.evaluate(()=>document.fonts.ready);await page.locator('img').evaluateAll(images=>Promise.all(images.map(image=>(image as HTMLImageElement).decode().catch(()=>{}))));await page.locator('#nprogress').waitFor({state:'detached'});await page.screenshot({path:path.join(previews,name),fullPage:true,animations:'disabled'});}
 
@@ -41,14 +52,9 @@ test('home layout follows viewport changes without reloading',async({page,contex
   }
 });
 
-test('advanced verification displays only concise authentication states',async({page,context})=>{
+test('advanced verification displays only concise authentication states',async({page,context,browser})=>{
   test.skip(fixture.certified_key,'Run with the ordinary hardware trust profile.');
   await localOnly(context);await authenticator(page);
-  let verificationStatus='approved';
-  const privateNote='Internal review detail must not be displayed';
-  await context.route('**/api/security/advanced/status/',route=>route.fulfill({
-    json:{status:verificationStatus,review_note:privateNote},
-  }));
   await page.goto('/login/');
   await page.getByPlaceholder('你的瓜田账号').fill(fixture.root.username);
   await page.getByRole('button',{name:'使用安全密钥或通行密钥登录'}).click();
@@ -56,25 +62,73 @@ test('advanced verification displays only concise authentication states',async({
   await page.getByRole('button',{name:'确认并继续'}).click();
   await expect(page).toHaveURL('http://localhost:15173/');
   await page.goto('/settings/?tab=security');
-  const advanced=page.locator('.security-settings section').filter({
-    has:page.getByRole('heading',{name:'管理员进阶认证',exact:true}),
-  });
-  const cases:Record<string,string>={approved:'认证通过',rejected:'认证错误',expired:'认证错误',
-    not_started:'等待认证',awaiting_signature:'等待认证',awaiting_email:'等待认证',
-    awaiting_review:'等待认证',unknown:'等待认证'};
-  for(const [status,label] of Object.entries(cases)){
-    verificationStatus=status;
-    await advanced.getByRole('button',{name:'刷新审核状态'}).click();
-    await expect(advanced.getByRole('status')).toHaveText(label);
-    await expect(advanced).not.toContainText(privateNote);
-    await expect(advanced).not.toContainText('审核记录');
-    await expect(advanced).not.toContainText('实名取认证邮件的发件人称呼');
-    await expect(advanced.getByRole('button',{name:'生成并签署认证挑战'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'管理员进阶认证',exact:true})).toHaveCount(0);
+
+  const onboardingContext=await browser.newContext();
+  await localOnly(onboardingContext);
+  let verificationStatus='approved';
+  const privateNote='Internal review detail must not be displayed';
+  await onboardingContext.route('**/api/security/advanced/status/',route=>route.fulfill({
+    json:{status:verificationStatus,review_note:privateNote},
+  }));
+  const onboardingPage=await onboardingContext.newPage();
+  try{
+    await installKeyFor(onboardingPage,fixture.unverified_admin);
+    await onboardingPage.goto('http://localhost:15173/login/');
+    await onboardingPage.getByPlaceholder('你的瓜田账号').fill(fixture.unverified_admin.username);
+    await onboardingPage.getByRole('button',{name:'使用安全密钥或通行密钥登录'}).click();
+    await onboardingPage.locator('.auth-panel input[type=password]').fill(fixture.unverified_admin.password);
+    const loginFin=onboardingPage.waitForResponse(response=>response.url().includes('/security/factor-finish/'));
+    await onboardingPage.getByRole('button',{name:'确认并继续'}).click();
+    const loginPayload=await (await loginFin).json();
+    expect(loginPayload.assigned_roles).toContain('admin_forum');
+    expect(loginPayload.user.badges.map((item:any)=>item.label)).toContain('藤野先生');
+    expect(loginPayload.permission.admin_forum).toBe(false);
+    expect(loginPayload.permission.base_admin).toBe(false);
+    await expect(onboardingPage).toHaveURL('http://localhost:15173/');
+    await expect(onboardingPage.getByRole('heading',{name:'欢迎加入管理团队',exact:true})).toBeVisible();
+    await expect(onboardingPage.locator('.arco-menu').getByText('管理',{exact:true})).toHaveCount(0);
+
+    const apiChecks=await onboardingPage.evaluate(async()=>{
+      const raw=localStorage.getItem('persistStorage') || sessionStorage.getItem('__default__');
+      const auth=raw?JSON.parse(raw).authorization:null;
+      const bearer=btoa(JSON.stringify(auth.payload)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')+'.'+auth.signature;
+      const [postRes,adminRes]=await Promise.all([
+        fetch('/api/post/',{headers:{Authorization:`Bearer ${bearer}`}}),
+        fetch('/api/admin/post/',{headers:{Authorization:`Bearer ${bearer}`}}),
+      ]);
+      return {postStatus:postRes.status,adminStatus:adminRes.status};
+    });
+    expect(apiChecks.postStatus).toBe(200);
+    expect(apiChecks.adminStatus).toBe(403);
+
+    const advanced=onboardingPage.locator('#security-identity-setup');
+    await expect(advanced.getByRole('heading',{name:'管理员进阶认证',exact:true})).toBeVisible();
+    const cases:Record<string,string>={approved:'认证通过',rejected:'认证错误',expired:'认证错误',
+      not_started:'等待认证',awaiting_signature:'等待认证',awaiting_email:'等待认证',
+      awaiting_review:'等待认证',unknown:'等待认证'};
+    for(const [status,label] of Object.entries(cases)){
+      verificationStatus=status;
+      await advanced.getByRole('button',{name:'刷新审核状态'}).click();
+      await expect(advanced.getByRole('status')).toHaveText(label);
+      await expect(advanced).not.toContainText(privateNote);
+      await expect(advanced).not.toContainText('审核记录');
+      await expect(advanced).not.toContainText('实名取认证邮件的发件人称呼');
+      await expect(advanced.getByRole('button',{name:'生成并签署认证挑战'})).toBeVisible();
+    }
+
+    await onboardingPage.getByRole('button',{name:'关闭引导窗口'}).click();
+    await expect(onboardingPage.getByRole('heading',{name:'管理员进阶认证',exact:true})).toHaveCount(0);
+    await onboardingPage.goto('http://localhost:15173/settings/?tab=security');
+    await expect(onboardingPage.getByRole('heading',{name:'管理员进阶认证',exact:true})).toHaveCount(0);
+    await expect(onboardingPage.getByRole('button',{name:'打开新任管理员认证与配置引导'})).toBeVisible();
+    await onboardingPage.setViewportSize({width:390,height:844});
+    await expect(onboardingPage.locator('.arco-layout-header .arco-page-header')).toBeVisible();
+    expect(await onboardingPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+    await screenshot(onboardingPage,'security-concise-mobile.png');
+  }finally{
+    await onboardingContext.close();
   }
-  await page.setViewportSize({width:390,height:844});
-  await expect(page.locator('.arco-layout-header .arco-page-header')).toBeVisible();
-  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
-  await screenshot(page,'security-concise-mobile.png');
 });
 
 function authenticatorCode(secret:string,counter:number){
@@ -265,7 +319,7 @@ test('independent mTLS console requires the original FIDO key for database opera
   await page.goto('http://localhost:15173/security/');
   await expect(page.getByText('审核记录：',{exact:false})).toHaveCount(0);
   await expect(page.getByText('实名取认证邮件的发件人称呼',{exact:false})).toHaveCount(0);
-  await expect(page.getByRole('status').filter({hasText:'等待认证'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'管理员进阶认证',exact:true})).toHaveCount(0);
   await expect(page.getByPlaceholder('与认证材料、客户端证书一致的姓名')).toHaveCount(0);
   const popup=context.waitForEvent('page');await page.getByRole('button',{name:'进入独立特权管理站'}).click();const consolePage=await popup;await setups.get(consolePage);await expect(consolePage).toHaveURL(/https:\/\/privileged\.localhost:18443/);await expect(consolePage.locator('#workspace')).toBeVisible();
   const approvalWindow=context.waitForEvent('page');await consolePage.getByRole('button',{name:'查找 / 浏览',exact:true}).click();const approval=await approvalWindow;await setups.get(approval);await expect(approval.getByRole('heading',{name:'确认这一次管理操作'})).toBeVisible();await approval.getByRole('button',{name:'验证安全密钥并授权'}).click();

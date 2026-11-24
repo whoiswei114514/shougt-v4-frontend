@@ -107,6 +107,7 @@ export const usePersistStore = defineStore('persistStorage', {
 export const sharedFunctions = {
   switchRole() {},
   openIssuanceModal() {},
+  openAdminOnboardingModal() {},
   setRoleId(id: number) {
     const store = useStore();
     store.roleId = id;

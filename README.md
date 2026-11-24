@@ -30,7 +30,7 @@ npm run build
 - 根据后端返回的核验等级展示标准绿标或高可信金标（悬停、聚焦或点击可展开 FIPS / CC 详情，适配深色模式与减少动画偏好）。
 - **接触式 FIDO2 与硬件 PIV / TPM 签发**：
   - 支持经由电脑上的 `backend.fido_bridge` 使用接触式 FIDO2 智能卡完成登录、绑定和授权；常规 USB / NFC 密钥直接使用浏览器原生 WebAuthn。
-  - 新管理员首次登录（`admin_onboarding_required`）自动进入三步 FIDO2 配置引导；授予超管、全局读者或特权角色时自动弹出硬件制卡向导（[src/views/security/Issuance.vue](src/views/security/Issuance.vue)），支持浏览器的 WebUSB 直连兼容智能卡与一键唤起本机智能卡 / Windows TPM 2.0 助手（仅校验通过的 `127.0.0.1:10000–65535` 端口通信），**彻底移除且禁止任何 `.p12` 或浏览器软件私钥导出路径**。
+  - 新任管理员首次登录（`admin_onboarding_required`）会自动弹出安全引导窗口（[src/views/security/AdminOnboardingModal.vue](src/views/security/AdminOnboardingModal.vue)），内嵌外置 FIDO2 安全密钥绑定、教育邮箱实名进阶认证签署与最终密钥确认三步流程；独立的管理员进阶认证已从日常安全中心隐藏。完成配置前账号仅保留管理身份徽章（有身份），不开放任何管理菜单或后台权限（无权限）。授予超管、全局读者或特权角色时自动弹出硬件制卡向导（[src/views/security/Issuance.vue](src/views/security/Issuance.vue)），支持浏览器的 WebUSB 直连兼容智能卡与一键唤起本机智能卡 / Windows TPM 2.0 助手（仅校验通过的 `127.0.0.1:10000–65535` 端口通信），**彻底移除且禁止任何 `.p12` 或浏览器软件私钥导出路径**。
   - 网页侧密码学源码位于 [src/scripts/webpiv/](src/scripts/webpiv/)，可通过以下命令重建同步脚本并在纯软件模拟环境下验证互操作：
 
 ```powershell
