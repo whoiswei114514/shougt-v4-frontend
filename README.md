@@ -14,9 +14,9 @@ npm run build
 
 开发前端为 `http://localhost:15173`，`/api` 转发到 `http://127.0.0.1:18000`。生产由同源代理将 `/api/` 转给 Django 并移除前缀。设置主站 WebAuthn RP / Origin 后才能使用正式密钥，localhost 测试凭据不通用于生产。
 
-独立特权管理站不在本项目的 `/admin` 路由中。其独立前端、独立后端和整站客户端证书 TLS 位于相邻 `shougt-sa`。主站的 `/security/approve` 只负责用本次主站登录的密钥批准指定单次操作。代登录只能由该独立站的超级管理员发起，主站 `/security/impersonate` 兑换短期票据。
+独立特权管理站不在本项目的 `/admin` 路由中，由独立部署的前后端及整站客户端证书 TLS 提供服务。主站的 `/security/approve` 只负责用本次主站登录的密钥批准指定单次操作。代登录只能由该独立站的超级管理员发起，主站 `/security/impersonate` 兑换短期票据。
 
-登录、安全中心绑定与授权页支持接触式 FIDO2 智能卡，使用电脑上的 `backend.fido_bridge` 配对。普通 USB/NFC FIDO2 仍由浏览器 WebAuthn 处理。独立站的 CanoKey 制卡默认支持 WebUSB 网页直连，主站源码在 `src/scripts/webpiv/`；执行 `npm run build:smartcards` 将打包文件及依赖许可证同步到相邻 `shougt-sa`，`npm run test:smartcards` 验证真实密码学与软件 PIVApplet 的互操作。该测试不会枚举实体 USB/PCSC/ADB 设备。
+登录、安全中心绑定与授权页支持接触式 FIDO2 智能卡，使用电脑上的 `backend.fido_bridge` 配对。普通 USB/NFC FIDO2 仍由浏览器 WebAuthn 处理。独立站的 CanoKey 制卡默认支持 WebUSB 网页直连，主站源码在 `src/scripts/webpiv/`；执行 `npm run build:smartcards` 同步构建产物及依赖许可证，`npm run test:smartcards` 验证真实密码学与软件 PIVApplet 的互操作。该测试不会枚举实体 USB/PCSC/ADB 设备。
 
 `public/logo.svg` 和 `src/assets/logo*.svg` 是新版矢量标识。`npm run generate-pwa-assets` 用 Resvg 生成各尺寸 PNG / ICO。原有登记信息不冒用：复制 `.env.example` 为 `.env.local`，填入本部署真实的备案号。媒体地址在 `src/consts` 中配置，需对应本站存储。
 
@@ -36,7 +36,7 @@ npm run build
 
 ## 浏览器联合测试
 
-主站后端和 `shougt-sa` 均需先安装各自 Python `.venv` 依赖。当前测试使用 Windows 系统 Edge；其他环境可在 `playwright.config.ts` 调整浏览器渠道。无需真实教育邮箱、实体密钥或生产数据库。
+主站后端和独立特权管理站均需先安装各自 Python `.venv` 依赖。当前测试使用 Windows 系统 Edge；其他环境可在 `playwright.config.ts` 调整浏览器渠道。无需真实教育邮箱、实体密钥或生产数据库。
 
 ```powershell
 npm run test:e2e
@@ -60,4 +60,4 @@ npm run test:e2e
 
 代登录保存在当前标签页的会话存储中。进入、切换角色、刷新和结束代登录均保留超管原有的长期登录状态、当前角色与“记住登录”选项；目标账号仍无法修改安全信息或进入管理功能。浏览器测试覆盖自动跳转、弹窗拦截后的手动入口和上述会话隔离。
 
-新管理员首次登录自动进入 FIDO2 配置引导，沿用安全中心配色、字体与按钮，完成前由后端限制管理访问。特殊角色授予直接打开自动制卡弹窗，无独立制卡页面或手动 JSON 交换。本机工具、PIN 和配对说明见相邻 shougt-sa/PIV-ISSUANCE.md。
+新管理员首次登录自动进入 FIDO2 配置引导，沿用安全中心配色、字体与按钮，完成前由后端限制管理访问。特殊角色授予直接打开自动制卡弹窗，无独立制卡页面或手动 JSON 交换。本机工具、PIN 和配对说明见独立特权管理站的硬件签发文档。
