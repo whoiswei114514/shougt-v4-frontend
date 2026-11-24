@@ -64,13 +64,13 @@ const columns = [
             id: record.content_id,
           };
           to.name = ['', 'admin-post-detail', 'admin-post-detail'][
-            record.extra_content.post_type
+            record.extra_content?.post_type
           ];
         } else if (record.content_type === 'drop') {
           to.name = 'drop';
           to.query = {
             tab: 'receive',
-            code: record.extra_content.drop_code,
+            code: record.extra_content?.drop_code,
           };
         } else if (record.content_type === 'comment') {
           to.name = 'admin-comment-detail';

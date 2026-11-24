@@ -92,7 +92,7 @@ const save = () => {
       { label: '共享角色', value: data.is_shared ? '是' : '否' },
       {
         label: '所有者',
-        value: `${data.user_info?.real_name}(${data.user_info?.username})`,
+        value: data.user_info ? `${data.user_info.real_name}(${data.user_info.username})` : '-',
       },
     ]"
   />

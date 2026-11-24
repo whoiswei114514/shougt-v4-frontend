@@ -55,7 +55,7 @@ const columns = [
     title: '所有者',
     dataIndex: 'user_info',
     render: ({ record }: { record: any }) => {
-      return `${record.user_info.real_name}(${record.user_info.username})`;
+      return record.user_info ? `${record.user_info.real_name}(${record.user_info.username})` : '-';
     },
   },
   {

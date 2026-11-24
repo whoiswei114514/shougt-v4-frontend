@@ -33,38 +33,42 @@ const descriptionData = computed(() =>
         { label: '创建时间', value: formatDatetime(data.value.create_time) },
         {
           label: '作者',
-          value: h(
-            RouterLink,
-            {
-              to: {
-                name: 'admin-role-detail',
-                params: { id: data.value.author.id },
-              },
-            },
-            () =>
-              h(
-                Link,
-                () => `[${data.value.author.id}]${data.value.author.name}`
+          value: data.value.author
+            ? h(
+                RouterLink,
+                {
+                  to: {
+                    name: 'admin-role-detail',
+                    params: { id: data.value.author.id },
+                  },
+                },
+                () =>
+                  h(
+                    Link,
+                    () => `[${data.value.author.id}]${data.value.author.name}`
+                  )
               )
-          ),
+            : '未知作者',
         },
         {
           label: '用户',
-          value: h(
-            RouterLink,
-            {
-              to: {
-                name: 'admin-user-detail',
-                params: { id: data.value.user?.id },
-              },
-            },
-            () =>
-              h(
-                Link,
+          value: data.value.user
+            ? h(
+                RouterLink,
+                {
+                  to: {
+                    name: 'admin-user-detail',
+                    params: { id: data.value.user.id },
+                  },
+                },
                 () =>
-                  `${data.value.user?.real_name}(${data.value.user?.username})`
+                  h(
+                    Link,
+                    () =>
+                      `${data.value.user?.real_name}(${data.value.user?.username})`
+                  )
               )
-          ),
+            : '-',
         },
         { label: '点赞数', value: data.value.like_count },
         {
@@ -86,16 +90,22 @@ const descriptionData = computed(() =>
         {
           label: '回复评论',
           value: data.value.reply_to
-            ? h(
-                RouterLink,
-                {
-                  to: {
-                    name: 'admin-comment-detail',
-                    params: { id: data.value.reply_to.id },
+            ? (() => {
+                const replyId =
+                  typeof data.value.reply_to === 'object'
+                    ? data.value.reply_to.id
+                    : data.value.reply_to;
+                return h(
+                  RouterLink,
+                  {
+                    to: {
+                      name: 'admin-comment-detail',
+                      params: { id: replyId },
+                    },
                   },
-                },
-                () => h(Link, () => `[${data.value.reply_to}]`)
-              )
+                  () => h(Link, () => `[${replyId}]`)
+                );
+              })()
             : '无',
         },
         {
@@ -115,21 +125,23 @@ const descriptionData = computed(() =>
         },
         {
           label: '帖子',
-          value: h(
-            RouterLink,
-            {
-              to: {
-                name: 'admin-post-detail',
-                params: { id: data.value.post?.id },
-              },
-            },
-            () =>
-              h(
-                Link,
+          value: data.value.post
+            ? h(
+                RouterLink,
+                {
+                  to: {
+                    name: 'admin-post-detail',
+                    params: { id: data.value.post.id },
+                  },
+                },
                 () =>
-                  `[${data.value.post?.id}]${data.value.post?.brief_content}`
+                  h(
+                    Link,
+                    () =>
+                      `[${data.value.post?.id}]${data.value.post?.brief_content}`
+                  )
               )
-          ),
+            : '-',
         },
         {
           label: '审核状态',

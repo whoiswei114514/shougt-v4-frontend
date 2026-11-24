@@ -38,7 +38,7 @@ for(const phone of [false,true])test(`granting a privileged role opens an automa
       approvals.push(task);task.catch(()=>{});
     });
     await consolePage.locator('#search').fill((phone?fixture.phone_recipient:fixture.issuance_recipient).username);
-    await consolePage.getByRole('button',{name:'查找用户'}).click();await consolePage.getByRole('button',{name:'选择用户'}).click();
+    await consolePage.getByRole('button',{name:'查找 / 浏览',exact:true}).click();await consolePage.getByRole('button',{name:'选择用户'}).click();
     await consolePage.locator('#role-options input[value=global_reader]').check();
     await consolePage.getByRole('button',{name:'验证密钥并更新角色'}).click();
     await expect(consolePage.getByRole('heading',{name:'签发并授予角色'})).toBeVisible();
@@ -52,8 +52,8 @@ for(const phone of [false,true])test(`granting a privileged role opens an automa
     await consolePage.locator('#piv-local-tool > summary').click();
     if(phone)await consolePage.locator('#piv-port').fill('18448');
     await consolePage.locator('#piv-pair-code').fill(phone?fixture.piv_phone_pair_code:fixture.piv_pair_code);
-    await consolePage.getByRole('button',{name:'连接本机制卡工具'}).click();
-    await expect(consolePage.locator('#piv-connection')).toContainText('已连接');
+    await consolePage.getByRole('button',{name:'手动连接本机助手'}).click();
+    await expect(consolePage.locator('#piv-connection')).toContainText('助手已就绪');
     await expect(consolePage.locator('#piv-reader option:not([value="webusb:auto"])')).toHaveCount(3);
     await expect(consolePage.locator('#piv-reader option').first()).toContainText('PIV + FIDO2');
     await expect(consolePage.locator('#piv-algorithm')).toHaveValue('auto');

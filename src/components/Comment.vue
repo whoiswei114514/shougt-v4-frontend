@@ -497,7 +497,7 @@ export default defineComponent({
                   @click="report(comment)"
                 >
                   <IconExclamationCircle />
-                  {{ comment.author.id === store.roleId ? '申诉' : '举报' }}
+                  {{ comment.author?.id === store.roleId ? '申诉' : '举报' }}
                 </span>
                 <span
                   class="action action-more"

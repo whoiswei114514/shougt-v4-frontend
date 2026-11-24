@@ -63,7 +63,7 @@ const columns = [
     title: '作者',
     dataIndex: 'author',
     render: ({ record }: { record: any }) => {
-      return `[${record.author.id}]${record.author.name}`;
+      return record.author ? `[${record.author.id}]${record.author.name}` : '未知作者';
     },
     width: 150,
     ellipsis: true,
@@ -73,7 +73,7 @@ const columns = [
     title: '所在帖子',
     dataIndex: 'post',
     render: ({ record }: { record: any }) => {
-      return `[${record.post.id}]${record.post.brief_content}`;
+      return record.post ? `[${record.post.id}]${record.post.brief_content}` : '-';
     },
     ellipsis: true,
     tooltip: true,

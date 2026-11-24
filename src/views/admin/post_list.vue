@@ -18,8 +18,10 @@ const loadingList = ref(false),
     current: 1,
     pageSize: 20,
     total: 0,
-  }),
-  getData = () => {
+  });
+let latestRequest = 0;
+const getData = () => {
+    const seq = ++latestRequest;
     loadingList.value = true;
     Axios.get('/admin/post/', {
       params: {
@@ -29,12 +31,15 @@ const loadingList = ref(false),
       },
     })
       .then(res => {
+        if (seq !== latestRequest) return;
         data.value = res.data.results;
         pagination.value.total = res.data.count;
       })
-      .catch(errorHandler)
+      .catch(error => {
+        if (seq === latestRequest) errorHandler(error);
+      })
       .finally(() => {
-        loadingList.value = false;
+        if (seq === latestRequest) loadingList.value = false;
       });
   };
 getData();
@@ -75,7 +80,7 @@ const columns = [
     title: '作者',
     dataIndex: 'author',
     render: ({ record }: { record: any }) => {
-      return `[${record.author.id}]${record.author.name}`;
+      return record.author ? `[${record.author.id}]${record.author.name}` : '未知作者';
     },
     width: 150,
     ellipsis: true,

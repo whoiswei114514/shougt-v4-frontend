@@ -50,20 +50,22 @@ const descriptionData = computed(() =>
         },
         {
           label: '作者',
-          value: h(
-            RouterLink,
-            {
-              to: {
-                name: 'admin-role-detail',
-                params: { id: data.value.author.id },
-              },
-            },
-            () =>
-              h(
-                Link,
-                () => `[${data.value.author.id}]${data.value.author.name}`
+          value: data.value.author
+            ? h(
+                RouterLink,
+                {
+                  to: {
+                    name: 'admin-role-detail',
+                    params: { id: data.value.author.id },
+                  },
+                },
+                () =>
+                  h(
+                    Link,
+                    () => `[${data.value.author.id}]${data.value.author.name}`
+                  )
               )
-          ),
+            : '未知作者',
         },
         { label: '创建时间', value: formatDatetime(data.value.create_time) },
         { label: '编辑时间', value: formatDatetime(data.value.edit_time) },
@@ -98,7 +100,7 @@ const versionList = ref([]),
       title: '创建者',
       width: 150,
       render: ({ record }) => {
-        return `${record.user.real_name}(${record.user.username})`;
+        return record.user ? `${record.user.real_name}(${record.user.username})` : '-';
       },
     },
 
@@ -192,7 +194,7 @@ const setPinned = async (value: boolean) => {
       { label: '版本', value: versionData.version },
       { label: '标题', value: versionData.title || '-' },
       { label: '创建时间', value: formatDatetime(versionData.create_time) },
-      { label: '创建者', value: `${versionData.user.real_name}(${versionData.user.username})` },
+      { label: '创建者', value: versionData.user ? `${versionData.user.real_name}(${versionData.user.username})` : '-' },
       { label: '审核状态', value: ReviewStatusLabel[versionData.review_status as keyof typeof ReviewStatusLabel] },
       { label: '分享对象', value: PostShareWithLabel[versionData.share_with as keyof typeof PostShareWithLabel] },
       { label: '允许评论', value: versionData.allow_comment ? '是' : '否' },

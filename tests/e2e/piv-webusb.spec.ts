@@ -49,15 +49,15 @@ for(const rsa of [false,true])test(`browser directly issues a USB PIV card (${rs
       approvals.push(action);action.catch(()=>{});
     });
     const recipient=rsa?fixture.webusb_rsa_recipient:fixture.webusb_recipient;
-    await consolePage.locator('#search').fill(recipient.username);await consolePage.getByRole('button',{name:'查找用户'}).click();
+    await consolePage.locator('#search').fill(recipient.username);await consolePage.getByRole('button',{name:'查找 / 浏览',exact:true}).click();
     await consolePage.getByRole('button',{name:'选择用户'}).click();await consolePage.locator('#role-options input[value=global_reader]').check();
     await consolePage.getByRole('button',{name:'验证密钥并更新角色'}).click();
     await expect(consolePage.locator('#issuance-dialog')).toBeVisible();
     await expect(consolePage.locator('#piv-local-tool')).not.toHaveAttribute('open');
     await expect(consolePage.locator('#issuance-dialog input[type=file]')).toHaveCount(0);
     await consolePage.screenshot({path:path.join(previews,`webusb-${rsa?'mobile':'desktop'}-entry.png`),animations:'disabled'});
-    await consolePage.getByRole('button',{name:'连接 USB 智能卡（免安装）'}).click();
-    await expect(consolePage.locator('#piv-connection')).toContainText('网页已连接 USB');
+    await consolePage.getByRole('button',{name:'授权 USB 智能卡（WebUSB 直连）'}).click();
+    await expect(consolePage.locator('#piv-connection')).toContainText('助手已就绪');
     await expect(consolePage.locator('#piv-reader option').first()).toContainText('PIV + FIDO2');
     await consolePage.locator('#piv-ca-reader').selectOption('webusb:auto');
     await consolePage.getByRole('button',{name:'开始制卡并授予角色'}).click();
@@ -73,13 +73,13 @@ for(const rsa of [false,true])test(`browser directly issues a USB PIV card (${rs
           await consolePage.getByRole('button',{name:'开始制卡并授予角色'}).click();
         }else await consolePage.getByRole('button',{name:'改用槽位 9c',exact:true}).click();
       }else if(await consolePage.locator('#piv-web-dialog').isVisible()){
-        if(await consolePage.getByRole('heading',{name:'连接CA 智能卡',exact:true}).isVisible()&&!authorizedCa){
+        if(await consolePage.getByRole('heading',{name:'连接签发卡（CA 卡 / 超管卡 / 超级特权卡）',exact:true}).isVisible()&&!authorizedCa){
           authorizedCa=true;await consolePage.locator('#piv-web-authorize').click();
           await expect(consolePage.locator('#piv-web-device option')).toHaveCount(2);
           await expect(consolePage.locator('#piv-web-device option:checked')).toContainText('测试 CA');
         }
         if(await consolePage.locator('#piv-web-confirm-empty').isVisible())await consolePage.locator('#piv-web-confirm-empty').check();
-        if(await consolePage.getByRole('heading',{name:'确认 CA 签发',exact:true}).isVisible())await expect(consolePage.locator('#piv-web-message')).toContainText(`CA 槽位 ${rsa?'9c':'9a'}`);
+        if(await consolePage.getByRole('heading',{name:'确认签发卡类型与签发信息',exact:true}).isVisible())await expect(consolePage.locator('#piv-web-message')).toContainText(`槽位 ${rsa?'9c':'9a'}`);
         if(await consolePage.locator('#piv-web-secret').isVisible())
           await consolePage.locator('#piv-web-secret').fill(await consolePage.getByRole('heading',{name:'输入目标卡管理密钥',exact:true}).isVisible()?'00112233445566778899aabbccddeeff0123456789abcdef':'654321');
         expect(await consolePage.locator('#piv-web-dialog').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);

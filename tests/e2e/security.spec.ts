@@ -145,7 +145,7 @@ test('browser WebAuthn registration and passkey login work on desktop and mobile
   await screenshot(page,'login-desktop.png');
   await page.getByText('密码',{exact:true}).first().click();await page.getByPlaceholder('你的瓜田账号').fill(fixture.normal.username);await page.getByPlaceholder('请输入密码').fill(fixture.normal.password);
   await page.getByRole('button',{name:'登录',exact:true}).click();await expect(page).toHaveURL('http://localhost:15173/');
-  await page.goto('/security/');await page.getByPlaceholder('用于确认此次安全设置').fill(fixture.normal.password);await page.getByPlaceholder('例如：随身安全密钥').fill('浏览器测试密钥');
+  await page.goto('/security/');await page.getByText('设备通行密钥',{exact:true}).click();await page.getByPlaceholder('用于确认此次安全设置').fill(fixture.normal.password);await page.getByPlaceholder('例如：随身安全密钥').fill('浏览器测试密钥');
   await page.getByRole('button',{name:'绑定新凭据'}).click();await expect(page.getByText('凭据已绑定',{exact:true})).toBeVisible();await expect(page.getByText('浏览器测试密钥',{exact:true})).toBeVisible();
   await screenshot(page,'security-center.png');
   await page.evaluate(()=>{sessionStorage.clear();localStorage.clear();});await page.goto('/login/');await page.getByPlaceholder('你的瓜田账号').fill(fixture.normal.username);await page.getByRole('button',{name:'使用安全密钥或通行密钥登录'}).click();await expect(page).toHaveURL('http://localhost:15173/');
@@ -268,7 +268,8 @@ test('independent mTLS console requires the original FIDO key for database opera
   await expect(page.getByRole('status').filter({hasText:'等待认证'})).toBeVisible();
   await expect(page.getByPlaceholder('与认证材料、客户端证书一致的姓名')).toHaveCount(0);
   const popup=context.waitForEvent('page');await page.getByRole('button',{name:'进入独立特权管理站'}).click();const consolePage=await popup;await setups.get(consolePage);await expect(consolePage).toHaveURL(/https:\/\/privileged\.localhost:18443/);await expect(consolePage.locator('#workspace')).toBeVisible();
-  const approvalWindow=context.waitForEvent('page');await consolePage.getByRole('button',{name:'查找用户',exact:true}).click();const approval=await approvalWindow;await setups.get(approval);await expect(approval.getByRole('heading',{name:'确认这一次管理操作'})).toBeVisible();await approval.getByRole('button',{name:'验证安全密钥并授权'}).click();
+  const approvalWindow=context.waitForEvent('page');await consolePage.getByRole('button',{name:'查找 / 浏览',exact:true}).click();const approval=await approvalWindow;await setups.get(approval);await expect(approval.getByRole('heading',{name:'确认这一次管理操作'})).toBeVisible();await approval.getByRole('button',{name:'验证安全密钥并授权'}).click();
+  await expect(consolePage.locator('#session-badge')).toContainText('查看已授权');
   await expect(consolePage.locator('#users')).toContainText('ui_root');await checkWatermarks(consolePage);await screenshot(consolePage,'privileged-console.png');
   await context.close();
 });
@@ -527,7 +528,18 @@ test('post pinning from management survives reload and keeps the original visibi
   await page.locator('.auth-panel input[type=password]').fill(fixture.root.password);
   await page.getByRole('button',{name:'确认并继续'}).click();
   await expect(page).toHaveURL('http://localhost:15173/');
+  const filterPinPost = async () => {
+    const searchInput = page.getByPlaceholder('请输入标题或内容关键词');
+    const listResponse = page.waitForResponse(response =>
+      response.url().includes('/api/admin/post/') &&
+      response.url().includes(encodeURIComponent(fixture.pin_post.title))
+    );
+    await searchInput.fill(fixture.pin_post.title);
+    await searchInput.press('Enter');
+    expect((await listResponse).status()).toBe(200);
+  };
   await page.goto('/admin/post/');
+  await filterPinPost();
   const row=page.getByRole('row').filter({hasText:fixture.pin_post.title});
   await row.getByRole('link',{name:'编辑',exact:true}).click();
   const toggle=page.getByRole('switch',{name:'置顶帖子',exact:true});
@@ -540,6 +552,7 @@ test('post pinning from management survives reload and keeps the original visibi
   await expect(toggle).toBeChecked();
   await screenshot(page,'post-pinning-management.png');
   await page.goto('/admin/post/');
+  await filterPinPost();
   await expect(page.getByRole('row').filter({hasText:fixture.pin_post.title})).toContainText('已置顶');
   const posts=await context.request.get('http://localhost:15173/api/post/');
   const first=(await posts.json()).results[0];

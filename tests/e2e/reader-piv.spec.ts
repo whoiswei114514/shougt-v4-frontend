@@ -1,18 +1,18 @@
 import {test,expect,type Page,type BrowserContext} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import {keyCounter,saveKeyCounter} from './key-counters';
 const work=process.env.SHOUGT_UI_WORK!;
 const fixture=JSON.parse(fs.readFileSync(path.join(work,'fixture.json'),'utf8'));
 const previews=process.env.SHOUGT_UI_PREVIEWS || path.join(work,'previews');
 fs.mkdirSync(previews,{recursive:true});
-const counters=new Map<string,number>();
 async function local(context:BrowserContext){await context.route('**/*',route=>{const url=new URL(route.request().url());return ['localhost','127.0.0.1','privileged.localhost'].includes(url.hostname)&&Number(url.port)>=10000?route.continue():route.abort();});}
 async function addKey(page:Page,key:any){
   const cdp=await page.context().newCDPSession(page);await cdp.send('WebAuthn.enable');
   const {authenticatorId}=await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',transport:'usb',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
-  const credential={credentialId:key.credential_id,isResidentCredential:true,rpId:'localhost',privateKey:key.private_key,userHandle:Buffer.from(String(key.user_id)).toString('base64'),signCount:counters.get(key.credential_id)||key.sign_count};
+  const credential={credentialId:key.credential_id,isResidentCredential:true,rpId:'localhost',privateKey:key.private_key,userHandle:Buffer.from(String(key.user_id)).toString('base64'),signCount:keyCounter(key)};
   await cdp.send('WebAuthn.addCredential',{authenticatorId,credential});
-  cdp.on('WebAuthn.credentialAsserted',({credential:value})=>counters.set(key.credential_id,Math.max(counters.get(key.credential_id)||key.sign_count,value.signCount)));
+  cdp.on('WebAuthn.credentialAsserted',({credential:value})=>{if(value.credentialId===key.credential_id)saveKeyCounter(key,value.signCount);});
   return {cdp,authenticatorId};
 }
 test('two different security keys can complete administrator login',async({page,context})=>{
