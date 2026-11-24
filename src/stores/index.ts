@@ -106,6 +106,7 @@ export const usePersistStore = defineStore('persistStorage', {
 
 export const sharedFunctions = {
   switchRole() {},
+  openIssuanceModal() {},
   setRoleId(id: number) {
     const store = useStore();
     store.roleId = id;
@@ -123,15 +124,19 @@ export const sharedFunctions = {
     const store = useStore();
     const persistStore = usePersistStore();
     const time = Math.floor(Date.now() / 1000);
-    if (store.authorization !== null) {
-      if (store.authorization.payload.exp < time) {
-        store.logout();
-      }
+    const isValid = (auth: Authorization | null): boolean => {
+      if (!auth || typeof auth !== 'object') return false;
+      if (typeof auth.signature !== 'string' || !auth.signature) return false;
+      if (!auth.payload || typeof auth.payload !== 'object') return false;
+      if (auth.payload.v !== 2) return false;
+      if (typeof auth.payload.exp !== 'number' || !Number.isFinite(auth.payload.exp)) return false;
+      return auth.payload.exp >= time;
+    };
+    if (store.authorization !== null && !isValid(store.authorization)) {
+      store.logout();
     }
-    if (persistStore.authorization !== null) {
-      if (persistStore.authorization.payload.exp < time) {
-        persistStore.logout();
-      }
+    if (persistStore.authorization !== null && !isValid(persistStore.authorization)) {
+      persistStore.logout();
     }
   },
   // @ts-ignore

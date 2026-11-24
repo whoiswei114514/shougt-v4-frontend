@@ -1,4 +1,4 @@
-import {bytes, concat, equal, unhex, tlv, valueOf} from './bytes.js';
+import {bytes, concat, elements, equal, unhex, tlv, valueOf} from './bytes.js';
 import {ALGORITHMS, CLIENT_SLOTS, blockCipher, generatedPublicKey, parseCertificate, sha, verifySignature} from './crypto.js';
 
 // CanoKey's documented vendor APDU protocol, separate from the protected CCID interface.
@@ -18,7 +18,7 @@ export class PivStatusError extends Error {
 export class CanoKeyChannel {
   constructor(device, {timeout = 90000, pollInterval = 100} = {}) {
     this.device = device; this.timeout = timeout; this.pollInterval = pollInterval;
-    this.claimed = false; this.tainted = false;
+    this.interfaceNumber = 1; this.claimed = false; this.tainted = false;
   }
   async timed(operation, deadline) {
     let timer;
@@ -34,22 +34,35 @@ export class CanoKeyChannel {
     const deadline = Date.now() + 15000;
     await this.timed(this.device.open(), deadline);
     if (!this.device.configuration) await this.timed(this.device.selectConfiguration(1), deadline);
-    const descriptor = this.device.configuration.interfaces.find(item => item.interfaceNumber === 1);
-    if (!descriptor || !descriptor.alternates.every(item => item.interfaceClass === 0xff))
+    const ifaces = this.device.configuration?.interfaces || [];
+    const descriptor = ifaces.find(
+      item => item.interfaceNumber === 1 && item.alternates?.length > 0 && item.alternates.every(alt => alt.interfaceClass === 0xff),
+    ) || ifaces.find(
+      item => item.alternates?.length > 0 && item.alternates.every(alt => alt.interfaceClass === 0xff),
+    );
+    if (!descriptor)
       throw new Error('此卡没有提供受支持的 WebUSB APDU 介面，请使用本机读卡工具');
-    await this.timed(this.device.claimInterface(1), deadline);
+    this.interfaceNumber = descriptor.interfaceNumber;
+    try {
+      await this.timed(this.device.claimInterface(this.interfaceNumber), deadline);
+    } catch (error) {
+      if (error?.name === 'NetworkError' || error?.name === 'SecurityError' || /claim/i.test(error?.message || '')) {
+        throw new Error(`无法独占打开 WebUSB 接口（可能正被其他浏览器标签页或本机读卡工具占用）：${error?.message || error?.name || '接口被占用'}`);
+      }
+      throw error;
+    }
     this.claimed = true;
   }
   async close() {
     if (this.claimed) {
-      try { await this.timed(this.device.releaseInterface(1), Date.now() + 3000); } catch (_) {}
+      try { await this.timed(this.device.releaseInterface(this.interfaceNumber), Date.now() + 3000); } catch (_) {}
       this.claimed = false;
     }
     try { await this.timed(this.device.close(), Date.now() + 3000); } catch (_) {}
   }
   async transmit(apdu) {
     if (!this.claimed || this.tainted) throw new Error('USB 连接不可用，请重新连接并核对卡片状态');
-    const setup = request => ({requestType: 'vendor', recipient: 'interface', request, value: 0, index: 1});
+    const setup = request => ({requestType: 'vendor', recipient: 'interface', request, value: 0, index: this.interfaceNumber});
     const deadline = Date.now() + this.timeout;
     const result = await this.timed(this.device.controlTransferOut(setup(0), apdu), deadline);
     if (result.status !== 'ok' || result.bytesWritten !== apdu.length) throw new Error('USB 指令发送失败；已停止操作');
@@ -107,7 +120,10 @@ export class PivCard {
     const object = OBJECTS[slot], id = new Uint8Array([object >>> 16, object >>> 8 & 255, object & 255]);
     const response = await this.command(0xcb, 0x3f, 0xff, tlv(0x5c, id), {missing: true});
     if (response === null) return null;
-    const contents = valueOf(response, 0x53), compression = valueOf(contents, 0x71);
+    const contents = valueOf(response, 0x53);
+    const compItems = elements(contents).filter(item => item.tag === 0x71);
+    if (compItems.length > 1) throw new Error('卡片返回了重复的证书压缩标记');
+    const compression = compItems.length === 1 ? compItems[0].data : new Uint8Array([0]);
     if (!equal(compression, new Uint8Array([0]))) throw new Error('此卡的压缩证书格式不受支持，已停止操作');
     return parseCertificate(valueOf(contents, 0x70));
   }
@@ -223,15 +239,22 @@ export class PivCard {
         fido2 = Array.isArray(versions) && versions.some(version => typeof version === 'string' && version.startsWith('FIDO_2_'));
       }
     } catch (error) {
-      if (!(error instanceof PivStatusError) || ![0x6a82, 0x6d00, 0x6a81].includes(error.status)) throw error;
+      if (!(error instanceof PivStatusError) && !error?.message?.startsWith('FIDO2 GetInfo')) throw error;
     }
     try {
       await this.select();
-      return {piv: true, fido2, state: 'ready', default_slot_occupied: !!await this.certificate('9a')};
     } catch (error) {
       if (!(error instanceof PivStatusError) || error.status !== 0x6a82) throw error;
       return {piv: false, fido2, state: fido2 ? 'fido_only' : 'unsupported'};
     }
+    let occupied = false;
+    try {
+      occupied = !!(await this.certificate('9a'));
+    } catch (error) {
+      if (error instanceof PivStatusError || /USB|超时|占用|连接不可用/.test(error?.message || '')) throw error;
+      occupied = true;
+    }
+    return {piv: true, fido2, state: 'ready', default_slot_occupied: occupied};
   }
 }
 // A bounded decoder for CTAP GetInfo, including FIDO2Applet's U2F_V2 SELECT response.

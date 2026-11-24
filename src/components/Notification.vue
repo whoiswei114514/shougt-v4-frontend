@@ -46,7 +46,9 @@ setInterval(getNotification, 1000 * 60 * 5);
 watch(() => store.roleId, getNotification);
 
 const getTitle = (n: any) => {
-    if (n.type === NotificationType.POST_LIKE) {
+    if (n.type === NotificationType.SYSTEM) {
+      return n.content?.title || '系统安全通知';
+    } else if (n.type === NotificationType.POST_LIKE) {
       return '有人点赞了你的帖子';
     } else if (n.type === NotificationType.COMMENT_LIKE) {
       return '有人点赞了你的评论';
@@ -57,7 +59,9 @@ const getTitle = (n: any) => {
     }
   },
   getDescription = (n: any) => {
-    if (n.type === NotificationType.POST_LIKE) {
+    if (n.type === NotificationType.SYSTEM) {
+      return n.content?.message || '';
+    } else if (n.type === NotificationType.POST_LIKE) {
       return `${n.content.role_names}点赞了你的帖子：${n.content.post_info}`;
     } else if (n.type === NotificationType.COMMENT_LIKE) {
       return `${n.content.role_names}点赞了你的评论：${n.content.comment_info}`;
@@ -76,7 +80,13 @@ const getTitle = (n: any) => {
         store.currentRole.unread_notification_count -= 1;
       if (store.unreadNotificationCount > 0) store.unreadNotificationCount -= 1;
     });
-    if (
+    if (n.type === NotificationType.SYSTEM) {
+      if (n.content?.route === '/security/issuance') {
+        sharedFunctions.openIssuanceModal();
+      } else if (typeof n.content?.route === 'string' && n.content.route.startsWith('/')) {
+        router.push(n.content.route);
+      }
+    } else if (
       [
         NotificationType.POST_LIKE,
         NotificationType.POST_COMMENT,

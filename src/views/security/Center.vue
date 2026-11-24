@@ -13,91 +13,121 @@ import SecurityKeyStatus from '../../components/SecurityKeyStatus.vue';
 import router from '../../router';
 import { isMobile } from '../../consts/isMobile';
 import { preferredSmartCard } from '../../scripts/smartcard';
-import {
-  deletePendingKey,
-  generateBrowserKey,
-  hasPendingKey,
-  installBrowserCert,
-  type BrowserPendingJob,
-} from '../../scripts/webpiv/browserCeremony';
+import { validateConsoleHandoffUrl, validateRelativeRedirectUrl } from '../../scripts/securityUrls';
 import '../../styles/security-settings.scss';
 
 type KeyInfo={id:number;name:string;is_security_key:boolean;trusted_hardware:boolean;local_preview_trusted:boolean;assurance:KeyAssurance;created_at:string;last_used_at:string|null};
 const store=useStore(), status=ref<(SecurityState & {keys:KeyInfo[]}) | null>(null), busy=ref(false);
+const fidoFreshUntil=ref(0);
+const secondKeyGuide=ref(false);
 const route=useRoute();
-const credentialConnection=ref<'browser'|'smartcard'>(preferredSmartCard()?'smartcard':'browser');
+const showPcsc=computed(()=>route.query.pcsc==='1'||preferredSmartCard());
+const credentialConnection=ref<'browser'|'smartcard'>(showPcsc.value?'smartcard':'browser');
+const sessionKeyName=computed(()=>{
+  const id=status.value?.session_key_id;
+  return status.value?.keys.find((key)=>key.id===id)?.name || '本次登录使用的安全密钥';
+});
 const previewKeyLevel=computed(()=>import.meta.env.DEV &&
   ['localhost','127.0.0.1','[::1]'].includes(window.location.hostname) &&
   route.query.key_preview==='fips140-3-level4' && Boolean(status.value?.key_authenticated));
 const displayedKeyAssurance=computed<KeyAssurance|null>(()=>previewKeyLevel.value
   ? {level:'fips140-3-level4',label:'FIPS 140-3 L4',high_assurance:true,certifications:['FIPS 140-3 L4']}
   : status.value?.session_key_assurance || null);
-const form=reactive({password:'',name:'我的安全密钥',kind:'security_key',totpCode:''});
+const isAndroid = /Android/i.test(navigator.userAgent || '');
+const form=reactive({password:'',name:'我的安全密钥',kind:'security_key',resident_key:(isAndroid?'discouraged':'preferred') as 'preferred'|'discouraged'|'required',totpCode:''});
 const totpSetup=ref<{secret:string;uri:string}|null>(null), mail=ref<any>(null), advanced=ref<any>({status:'not_started'}), contact=ref('renzheng@shouguatian.com');
-const pendingJobs=ref<(BrowserPendingJob & {_localKeyReady?:boolean})[]>([]);
-const browserCertForm=reactive({algorithm:'auto',passphrase:'',confirmPassphrase:'',installPassphrase:''});
-const lastDownloadedP12=ref<{issuanceId:string;filename:string;isCaCert:boolean}|null>(null);
-const browserWebCryptoSupported=computed(()=>Boolean(globalThis.isSecureContext && globalThis.crypto?.subtle));
+const pendingJobCount=ref(0);
 const manager=computed(()=>status.value?.is_management || status.value?.is_admin_candidate);
 const onboarding=computed(()=>Boolean(status.value?.admin_onboarding_required));
-const hasTrustedKey=computed(()=>Boolean(status.value?.keys.some(key=>key.trusted_hardware)));
+const adminKeysReady=computed(()=>Boolean(status.value?.admin_keys_satisfied));
+const needsSecondOrdinaryKey=computed(()=>Boolean(status.value?.is_management && !status.value?.admin_keys_satisfied && (status.value?.external_key_count || 0) === 1 && !status.value?.has_high_assurance_key));
+const adminKeyGuideVisible=ref(false);
+const adminKeyGuideShown=ref(false);
 function showSetupSection(id:string){document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'start'});}
+function openKeySetupFromGuide(){adminKeyGuideVisible.value=false;showSetupSection('security-key-setup');}
 const advancedLabel=computed(()=>advanced.value.status==='approved'?'认证通过':['rejected','expired'].includes(advanced.value.status)?'认证错误':'等待认证');
 async function refresh(){
   const [security, info, verification]=await Promise.all([Axios.get('/security/status/'),Axios.get('/user/info/'),Axios.get('/security/advanced/status/')]);
-  status.value=security.data;saveUserInfo(info.data,false);advanced.value=verification.data;
+  status.value=security.data;
+  const freshSeconds=Number(security.data?.fido_fresh_seconds || 0);
+  fidoFreshUntil.value=freshSeconds > 0 ? Date.now() + freshSeconds * 1000 : 0;
+  saveUserInfo(info.data,false);advanced.value=verification.data;
+  if(onboarding.value && !adminKeysReady.value && !adminKeyGuideShown.value){
+    adminKeyGuideVisible.value=true;
+    adminKeyGuideShown.value=true;
+  }
   if(status.value?.key_authenticated && status.value?.email_verified && status.value?.real_name_verified && status.value?.advanced_verified && !status.value?.admin_onboarding_required){
     try{
       const pendingRes=await Axios.get('/security/issuance-pending/');
-      const rows:BrowserPendingJob[]=Array.isArray(pendingRes.data?.jobs)?pendingRes.data.jobs:[];
-      const enriched:Array<BrowserPendingJob & {_localKeyReady?:boolean}>=[];
-      for(const job of rows){
-        enriched.push({...job,_localKeyReady:await hasPendingKey(job.issuance_id).catch(()=>false)});
-      }
-      pendingJobs.value=enriched;
+      pendingJobCount.value=Array.isArray(pendingRes.data?.jobs)?pendingRes.data.jobs.length:0;
     }catch{
-      pendingJobs.value=[];
+      pendingJobCount.value=0;
     }
   }else{
-    pendingJobs.value=[];
+    pendingJobCount.value=0;
   }
 }
-function triggerDownloadP12(bytes:Uint8Array,filename:string){
-  const url=URL.createObjectURL(new Blob([bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength) as ArrayBuffer],{type:'application/x-pkcs12'}));
-  const link=document.createElement('a');link.href=url;link.download=filename;document.body.appendChild(link);link.click();link.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),10000);
-}
-const submitBrowserCsr=(job:BrowserPendingJob)=>run(async()=>{
-  if(!browserWebCryptoSupported.value)throw new Error('当前浏览器不支持 WebCrypto，请使用 HTTPS 浏览器');
-  if(browserCertForm.passphrase.length<8)throw new Error('请设置至少 8 位的 .p12 保护口令');
-  if(browserCertForm.passphrase!==browserCertForm.confirmPassphrase)throw new Error('两次输入的保护口令不一致');
-  const generated=await generateBrowserKey({job,passphrase:browserCertForm.passphrase,algorithm:browserCertForm.algorithm});
-  await Axios.post('/security/issuance-csr/',generated);
-  browserCertForm.installPassphrase=browserCertForm.passphrase;
-  browserCertForm.passphrase='';browserCertForm.confirmPassphrase='';
-  Message.success('公钥请求 (CSR) 已生成并提交，请等待管理员使用 CA 签发');
-  await refresh();
-});
-const completeBrowserInstall=(job:BrowserPendingJob)=>run(async()=>{
-  if(browserCertForm.installPassphrase.length<8)throw new Error('请输入生成密钥时设置的 .p12 保护口令');
-  const chainPem=job.signed_chain_pem||[];
-  if(chainPem.length<2)throw new Error('签发管理员尚未发布已签发的证书链');
-  const installed=await installBrowserCert({job:{...job,chain_pem:chainPem},passphrase:browserCertForm.installPassphrase});
-  triggerDownloadP12(installed.p12Bytes,installed.filename);
-  await Axios.post('/security/issuance-proof/',{
-    issuance_id:installed.receipt.issuance_id,
-    proof:installed.receipt.proof,
-    card_slot:installed.receipt.card_slot,
-  });
-  await deletePendingKey(job.issuance_id).catch(()=>{});
-  browserCertForm.installPassphrase='';
-  lastDownloadedP12.value={issuanceId:job.issuance_id,filename:installed.filename,isCaCert:installed.isCaCert};
-  Message.success('已导出 .p12 并提交持钥证明，请联系签发管理员激活角色');
-  await refresh();
-});
 async function run(action:()=>Promise<void>){busy.value=true;try{await action();}catch(error){Message.error(securityError(error));}finally{busy.value=false;}}
-async function accountProof(){if(status.value?.fido_authenticated)await reauthenticate();}
-const bindKey=()=>run(async()=>{await accountProof();const {data}=await Axios.post('/security/key-register-begin/',form);await Axios.post('/security/key-register-finish/',{...await createCredential(data,form.kind==='passkey'?'browser':credentialConnection.value),password:form.password});form.password='';Message.success('凭据已绑定');await refresh();});
+function hasFreshFido(bufferSeconds=60){
+  return Boolean(status.value?.fido_authenticated && fidoFreshUntil.value - Date.now() > bufferSeconds * 1000);
+}
+async function performReauth(){
+  const res=await reauthenticate(showPcsc.value ? credentialConnection.value : 'browser');
+  const freshSeconds=Number(res?.fido_fresh_seconds || 300);
+  fidoFreshUntil.value=Date.now() + freshSeconds * 1000;
+}
+async function accountProof(bufferSeconds=30){
+  if(status.value?.fido_authenticated && !hasFreshFido(bufferSeconds)){
+    await performReauth();
+  }
+}
+function promptReauthForBind(){
+  Modal.confirm({
+    title:'请先验证当前登录的安全密钥',
+    content:`当前安全验证已超过有效期。请先连接或轻触本次登录使用的安全密钥「${sessionKeyName.value}」确认身份；确认通过后再更换为要绑定的新密钥。`,
+    okText:'验证当前密钥',
+    cancelText:'取消',
+    onOk:()=>run(async()=>{
+      await performReauth();
+      Message.success('身份已确认（5 分钟内有效）。请插入或轻触要绑定的新密钥，再点击「绑定新凭据」。');
+    }),
+  });
+}
+const bindKey=()=>{
+  if(status.value?.fido_authenticated && !hasFreshFido(60)){
+    promptReauthForBind();
+    return;
+  }
+  return run(async()=>{
+    const payload={kind:form.kind,name:form.name,resident_key:form.kind==='security_key'?form.resident_key:'preferred',password:form.password};
+    let data:any;
+    try{
+      ({data}=await Axios.post('/security/key-register-begin/',payload));
+    }catch(error:any){
+      if(status.value?.fido_authenticated && error?.response?.status===403 && String(error?.response?.data?.msg || '').includes('重新验证')){
+        fidoFreshUntil.value=0;
+        promptReauthForBind();
+        return;
+      }
+      throw error;
+    }
+    const {data:finishData}=await Axios.post('/security/key-register-finish/',{...await createCredential(data,form.kind==='passkey'||!showPcsc.value?'browser':credentialConnection.value),password:form.password});
+    form.password='';await refresh();
+    const count=status.value?.external_key_count ?? finishData?.external_key_count ?? 0;
+    if(status.value?.is_management && !finishData?.high_assurance && !status.value?.admin_keys_satisfied && count===1){
+      secondKeyGuide.value=true;
+      adminKeyGuideVisible.value=true;
+      form.kind='security_key';
+      form.name='备用安全密钥（第 2 把）';
+      Message.info('第 1 把普通安全密钥已绑定。管理员需绑定 2 把普通安全密钥（或 1 把高认证密钥），请插入或轻触第 2 把不同的安全密钥并继续绑定。');
+      showSetupSection('security-key-setup');
+    }else{
+      secondKeyGuide.value=false;
+      form.name='我的安全密钥';
+      Message.success('凭据已绑定');
+    }
+  });
+};
 function removeKey(key:KeyInfo){Modal.confirm({title:`撤销「${key.name}」`,content:'撤销后，这个凭据将无法用于登录。管理员需保留至少一把安全密钥。',onOk:()=>run(async()=>{await accountProof();await Axios.post('/security/key-remove/',{key_id:key.id,password:form.password});if(status.value?.session_key_id===key.id){sharedFunctions.logout();await router.replace('/login/');}else await refresh();Message.success('凭据已撤销');})});}
 const startTotp=()=>run(async()=>{await accountProof();totpSetup.value=(await Axios.post('/security/totp-begin/',{password:form.password})).data;});
 const confirmTotp=()=>run(async()=>{await Axios.post('/security/totp-confirm/',{code:form.totpCode,password:form.password});totpSetup.value=null;form.totpCode='';form.password='';await refresh();Message.success('二次验证器已启用');});
@@ -105,13 +135,41 @@ const removeTotp=()=>run(async()=>{await accountProof();await Axios.post('/secur
 const signAdvanced=()=>run(async()=>{if(!status.value?.key_authenticated)await reauthenticate();const {data}=await Axios.post('/security/advanced/begin/',{});mail.value=(await Axios.post('/security/advanced/finish/',await getAssertion(data))).data;await refresh();});
 const copyMail=()=>run(async()=>{await navigator.clipboard.writeText(mail.value.body);Message.success('认证邮件正文已复制');});
 function downloadMail(){const url=URL.createObjectURL(new Blob([mail.value.body],{type:'text/plain;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download='shou-verification.txt';link.click();URL.revokeObjectURL(url);}
-const openConsole=()=>run(async()=>{const target=window.open('about:blank','shou-privileged');try{const {data}=await Axios.post('/security/console-begin/');const result=await Axios.post('/security/console-finish/',await getAssertion(data));if(target)target.location.href=result.data.url;else window.location.assign(result.data.url);}catch(error){target?.close();throw error;}});
-const openDjango=()=>run(async()=>{await reauthenticate();const {data}=await Axios.post('/security/django-admin/');window.open(data.url,'_blank','noopener,noreferrer');});
+const openConsole=()=>run(async()=>{
+  if(status.value?.needs_certificate_issuance||store.security?.needs_certificate_issuance){
+    Message.info(status.value?.certificate_status==='expired'?'你的特权管理证书已过期，请先在弹窗中重新签发硬件证书':'首次进入独立特权管理站前，请先在弹窗中完成硬件证书签发');
+    sharedFunctions.openIssuanceModal();
+    return;
+  }
+  const target=window.open('about:blank','shou-privileged');
+  try{
+    const [{data},configRes]=await Promise.all([Axios.post('/security/console-begin/'),Axios.get('/security/config/')]);
+    const result=await Axios.post('/security/console-finish/',await getAssertion(data));
+    const consoleUrl=validateConsoleHandoffUrl(result.data?.url,configRes.data?.console_url);
+    if(target)target.location.href=consoleUrl;
+    else window.location.assign(consoleUrl);
+  }catch(error){
+    target?.close();
+    throw error;
+  }
+});
+const openDjango=()=>run(async()=>{
+  await reauthenticate();
+  const {data}=await Axios.post('/security/django-admin/');
+  const targetUrl=validateRelativeRedirectUrl(data?.url);
+  window.open(targetUrl,'_blank','noopener,noreferrer');
+});
 const showRealName=(value:boolean)=>run(async()=>{await Axios.post('/security/privacy/',{show_real_name:value});await refresh();Message.success('实名展示设置已保存');});
 const completeAdminSetup=()=>run(async()=>{
   const {data}=await Axios.post('/security/admin-setup-begin/');
-  const result=await Axios.post('/security/admin-setup-finish/',await getAssertion(data,credentialConnection.value));
-  saveUserInfo(result.data,true);await refresh();Message.success('管理员安全配置已完成');
+  const result=await Axios.post('/security/admin-setup-finish/',await getAssertion(data,showPcsc.value?credentialConnection.value:'browser'));
+  saveUserInfo(result.data,true);
+  await refresh();
+  if(result.data?.security?.needs_certificate_issuance){
+    Message.success('管理员安全配置已完成；首次进入独立特权管理站时将自动弹出硬件证书签发窗口');
+    return;
+  }
+  Message.success('管理员安全配置已完成');
 });
 onMounted(()=>run(async()=>{await refresh();contact.value=(await Axios.get('/security/config/')).data.material_review_contact;}));
 </script>
@@ -122,15 +180,16 @@ onMounted(()=>run(async()=>{await refresh();contact.value=(await Axios.get('/sec
       <h2 id="admin-welcome-title">欢迎加入管理团队</h2>
       <p class="security-muted">先为管理身份配置安全密钥。完成以下步骤后，就可以开始使用获授的管理功能。</p>
       <ol class="admin-welcome-steps">
-        <li :class="{complete:hasTrustedKey}"><span class="admin-step-number">01</span><div><strong>配置 FIDO2 安全密钥</strong><p>{{hasTrustedKey?'已找到可信安全密钥，可继续使用或添加备用密钥。':'连接支持 PIN 或生物识别的 USB / NFC 安全密钥，完成绑定。'}}</p></div></li>
+        <li :class="{complete:adminKeysReady}"><span class="admin-step-number">01</span><div><strong>配置 FIDO2 安全密钥</strong><p>{{adminKeysReady?'安全密钥配置已达标，可继续完成身份认证或添加备用密钥。':needsSecondOrdinaryKey?'已绑定第 1 把普通安全密钥，请再绑定第 2 把不同的安全密钥（或改为绑定 FIPS 140-2 L2 / CC EAL4+ 以上高认证密钥）。':'管理员需绑定 2 把不同的普通外置安全密钥，或 1 把 FIPS 140-2 L2 / CC EAL4+ 以上高认证安全密钥。'}}</p></div></li>
         <li :class="{complete:status?.admin_setup_ready}"><span class="admin-step-number">02</span><div><strong>确认管理身份</strong><p>{{status?.admin_setup_ready?'邮箱、实名与进阶认证已就绪。':'完成教育邮箱与身份认证，等待材料审核通过。'}}</p></div></li>
         <li><span class="admin-step-number">03</span><div><strong>验证密钥，完成配置</strong><p>使用本人的安全密钥确认。配置完成前，仅开放安全配置功能。</p></div></li>
       </ol>
       <a-space wrap>
-        <a-button v-if="!hasTrustedKey" type="primary" @click="showSetupSection('security-key-setup')">绑定我的安全密钥</a-button>
+        <a-button v-if="!adminKeysReady" type="primary" @click="showSetupSection('security-key-setup')">{{ needsSecondOrdinaryKey ? '继续绑定第 2 把安全密钥' : '绑定我的安全密钥' }}</a-button>
         <a-button v-else-if="!status?.admin_setup_ready" type="primary" @click="showSetupSection('security-identity-setup')">继续身份认证</a-button>
         <a-button v-else type="primary" :loading="busy" @click="completeAdminSetup">验证安全密钥并完成配置</a-button>
-        <a-button v-if="hasTrustedKey" @click="showSetupSection('security-key-setup')">管理或添加备用密钥</a-button>
+        <a-button v-if="adminKeysReady" @click="showSetupSection('security-key-setup')">管理或添加备用密钥</a-button>
+        <a-button type="text" @click="adminKeyGuideVisible = true">查看密钥要求</a-button>
       </a-space>
     </section>
     <a-alert v-if="status?.session_scope === 'enrollment' && !onboarding" type="info" class="security-notice">
@@ -158,16 +217,19 @@ onMounted(()=>run(async()=>{await refresh();contact.value=(await Axios.get('/sec
 
     <section id="security-key-setup">
       <a-typography-title :heading="5">安全密钥与通行密钥</a-typography-title>
-      <p class="security-muted">每个账号可绑定 1–3 把安全密钥，支持 USB 与 NFC。普通账号验证任意一把即可；管理员可选安全密钥加密码、二次验证器，或验证两把不同的安全密钥。</p>
+      <p class="security-muted">每个账号可绑定 1–3 把安全密钥，支持 USB 与 NFC。</p>
       <div v-for="key in status?.keys" :key="key.id" class="key-row">
         <div class="key-info">
           <span class="key-name">{{ key.name }}</span>
-          <span class="key-detail">{{ key.local_preview_trusted ? '本机测试已允许的安全密钥' : key.trusted_hardware ? '已验证的外置安全密钥' : key.is_security_key ? '外置凭据 · 硬件证明待验证' : '通行密钥' }} · {{ key.assurance?.label || '标准验证' }}</span>
+          <span class="key-detail">{{ key.local_preview_trusted ? '本机测试已允许的安全密钥' : key.assurance?.high_assurance ? '高认证外置安全密钥' : key.trusted_hardware ? '已验证的外置安全密钥' : key.is_security_key ? '普通外置安全密钥' : '通行密钥' }} · {{ key.assurance?.label || '标准验证' }}</span>
           <span class="key-detail">最近使用：{{ key.last_used_at ? formatDatetime(key.last_used_at) : '尚未使用' }}</span>
         </div>
         <a-button type="text" status="danger" :disabled="busy" @click="removeKey(key)">撤销</a-button>
       </div>
       <a-empty v-if="status && !status.keys.length" description="还没有绑定登录凭据" class="key-empty" />
+      <a-alert v-if="needsSecondOrdinaryKey || secondKeyGuide" type="warning" class="security-notice">
+        已绑定 1 把普通安全密钥。管理员至少需要 2 把不同的普通外置安全密钥（或 1 把 FIPS 140-2 L2 / CC EAL4+ 以上高认证密钥）；请插入或轻触第 2 把安全密钥，然后点击下方按钮完成第 2 把密钥绑定。
+      </a-alert>
       <a-form :model="form" auto-label-width :layout="isMobile ? 'vertical' : 'horizontal'" class="security-form" @submit="bindKey">
         <a-form-item v-if="!status?.fido_authenticated" label="当前密码">
           <a-input-password v-model="form.password" autocomplete="current-password" placeholder="用于确认此次安全设置" />
@@ -181,11 +243,17 @@ onMounted(()=>run(async()=>{await refresh();contact.value=(await Axios.get('/sec
             <a-radio v-if="!status?.is_management" value="passkey">设备通行密钥</a-radio>
           </a-radio-group>
         </a-form-item>
-        <a-form-item v-if="form.kind==='security_key'" label="连接方式">
+        <a-form-item v-if="form.kind==='security_key' && showPcsc" label="连接方式">
           <a-select v-model="credentialConnection"><a-option value="browser">USB / NFC 安全密钥</a-option><a-option value="smartcard">接触式智能卡（PC/SC）</a-option></a-select>
         </a-form-item>
+        <a-form-item v-if="form.kind==='security_key'" label="凭据模式" :extra="isAndroid ? '安卓 NFC 建议保持兼容模式；若系统弹窗仍提示失败，请在系统设置中将通行密钥服务切换为 Google 密码管理工具。' : undefined">
+          <a-select v-model="form.resident_key" aria-label="凭据模式">
+            <a-option value="preferred">标准模式（支持免账号登录，占 1 个空位）</a-option>
+            <a-option value="discouraged">兼容模式（非可发现凭据，兼容移动 NFC）</a-option>
+          </a-select>
+        </a-form-item>
         <a-form-item>
-          <a-button type="primary" html-type="submit" :loading="busy" :disabled="form.kind === 'security_key' && (status?.keys.filter((key:any) => key.is_security_key).length || 0) >= 3">绑定新凭据</a-button>
+          <a-button type="primary" html-type="submit" :loading="busy" :disabled="form.kind === 'security_key' && (status?.keys.filter((key:any) => key.is_security_key).length || 0) >= 3">{{ needsSecondOrdinaryKey ? '继续绑定第 2 把安全密钥' : '绑定新凭据' }}</a-button>
         </a-form-item>
       </a-form>
     </section>
@@ -263,70 +331,20 @@ onMounted(()=>run(async()=>{await refresh();contact.value=(await Axios.get('/sec
       </section>
     </template>
 
-    <template v-if="pendingJobs.length || lastDownloadedP12">
+    <template v-if="pendingJobCount > 0 || (status?.signed_issuance_ready_count || 0) > 0 || (status?.pending_sign_requests_count || 0) > 0">
       <a-divider />
       <section id="security-browser-issuance">
-        <a-typography-title :heading="5">管理证书自助签发（纯浏览器免应用）</a-typography-title>
-        <p class="security-muted">无需安装第三方工具或智能卡应用，直接在 PC / 手机浏览器中完成密钥生成、.p12 证书下载与持钥证明。私钥仅加密暂存于当前浏览器，不上传服务器。</p>
-        <div v-for="job in pendingJobs" :key="job.issuance_id" class="key-row" style="flex-direction:column;align-items:stretch;gap:12px">
-          <div class="key-info">
-            <span class="key-name">任务 #{{ job.issuance_id.slice(0, 8) }} · {{ job.roles.join(' / ') }}</span>
-            <span class="key-detail">
-              类型：{{ job.temporary ? `短期临时最终证书（${job.validity_days} 天）` : (job.delegated_ca ? '长期 CA 签发证书' : '长期客户端证书') }}
-              · 截止：{{ formatDatetime(job.expires_at) }}
-            </span>
-          </div>
-          <template v-if="job.state === 'requested' && !job.has_target_csr">
-            <a-form :model="browserCertForm" auto-label-width :layout="isMobile ? 'vertical' : 'horizontal'" class="security-form" @submit="submitBrowserCsr(job)">
-              <a-form-item label="密钥算法">
-                <a-select v-model="browserCertForm.algorithm">
-                  <a-option value="auto">P-384（推荐）</a-option>
-                  <a-option value="P-384">ECDSA P-384</a-option>
-                  <a-option value="RSA-3072">RSA-3072</a-option>
-                  <a-option value="RSA-2048">RSA-2048</a-option>
-                </a-select>
-              </a-form-item>
-              <a-form-item label=".p12 保护口令">
-                <a-input-password v-model="browserCertForm.passphrase" placeholder="至少 8 位，用于导出与导入 .p12 证书" />
-              </a-form-item>
-              <a-form-item label="确认保护口令">
-                <a-input-password v-model="browserCertForm.confirmPassphrase" placeholder="再次输入保护口令" />
-              </a-form-item>
-              <a-form-item>
-                <a-button type="primary" html-type="submit" :loading="busy" :disabled="!browserWebCryptoSupported">
-                  在当前浏览器生成密钥并提交 CSR
-                </a-button>
-              </a-form-item>
-            </a-form>
-          </template>
-          <template v-else-if="job.state === 'requested' || !job.signed_chain_pem">
-            <a-space wrap>
-              <a-tag color="arcoblue">已提交公钥，等待管理员使用 CA 签发并发布证书链</a-tag>
-              <a-button size="small" :loading="busy" @click="run(refresh)">刷新签名状态</a-button>
-            </a-space>
-          </template>
-          <template v-else-if="job.has_target_proof">
-            <a-tag color="green">持钥证明已提交，等待签发管理员完成最后激活</a-tag>
-          </template>
-          <template v-else>
-            <a-alert v-if="!job._localKeyReady" type="warning">
-              当前浏览器未找到此任务的暂存私钥，请在最初生成 CSR 的那台设备与浏览器中打开此页面完成导出。
-            </a-alert>
-            <a-form v-else :model="browserCertForm" auto-label-width :layout="isMobile ? 'vertical' : 'horizontal'" class="security-form" @submit="completeBrowserInstall(job)">
-              <a-form-item label=".p12 保护口令">
-                <a-input-password v-model="browserCertForm.installPassphrase" placeholder="输入生成密钥时设置的口令" />
-              </a-form-item>
-              <a-form-item>
-                <a-button type="primary" html-type="submit" :loading="busy">
-                  验证证书链、下载 .p12 并提交持钥证明
-                </a-button>
-              </a-form-item>
-            </a-form>
-          </template>
-        </div>
-        <a-alert v-if="lastDownloadedP12" type="success" style="margin-top: 12px">
-          已下载 <strong>{{ lastDownloadedP12.filename }}</strong>。在设备安装即可直接用于访问特权管理站：Windows 双击 .p12 导入「当前用户 -> 个人」；macOS 双击导入「钥匙串访问 -> 登录」；iOS/iPadOS 在文件或 Safari 打开后于「设置 -> 已下载描述文件」安装；Android 在「设置 -> 安全 -> 加密与凭据 -> 安装证书（VPN 与应用用户证书）」导入。
+        <a-typography-title :heading="5">智能卡 / TPM 证书签发与待签署提醒</a-typography-title>
+        <a-alert v-if="(status?.pending_sign_requests_count || 0) > 0" type="info" class="security-notice">
+          当前有 {{ status?.pending_sign_requests_count }} 份其他管理员提交的硬件证书公钥等待签署（CA 卡 / 超管卡 / 超级特权卡），请前往协助签署。
         </a-alert>
+        <a-alert v-if="(status?.signed_issuance_ready_count || 0) > 0" type="success" class="security-notice">
+          您有 {{ status?.signed_issuance_ready_count }} 份离线硬件证书申请已由管理员签署完成，请前往导入证书链到原智能卡 / TPM 并激活。
+        </a-alert>
+        <a-alert v-if="pendingJobCount > 0 && !(status?.signed_issuance_ready_count || 0)" type="info" class="security-notice">
+          当前共有 {{ pendingJobCount }} 项进行中的特权证书签发任务。为确保私钥不可导出，证书仅可在实体智能卡或本机 Windows TPM 2.0 安全芯片内生成，请前往证书签发页查看进度或完成操作。
+        </a-alert>
+        <a-button type="primary" @click="sharedFunctions.openIssuanceModal()">打开证书签发弹窗</a-button>
       </section>
     </template>
 
@@ -334,11 +352,32 @@ onMounted(()=>run(async()=>{await refresh();contact.value=(await Axios.get('/sec
       <a-divider />
       <section>
         <a-typography-title :heading="5">管理入口</a-typography-title>
+        <a-alert v-if="status?.needs_certificate_issuance" type="warning" class="security-notice">
+          {{ status.certificate_status === 'expired' ? '你的特权管理证书已过期，点击下方「进入独立特权管理站」将自动弹出重新签发窗口。' : '首次访问独立特权管理站前需先签发硬件证书，点击下方「进入独立特权管理站」将自动弹出签发窗口。' }}
+        </a-alert>
         <a-space wrap>
           <a-button v-if="status?.admin_access && status?.is_privileged" :loading="busy" @click="openConsole">进入独立特权管理站</a-button>
           <a-button v-if="store.permission.super_admin" :loading="busy" @click="openDjango">Django 管理</a-button>
         </a-space>
       </section>
     </template>
+
+    <a-modal
+      v-model:visible="adminKeyGuideVisible"
+      :title="needsSecondOrdinaryKey ? '请继续绑定第 2 把安全密钥' : '管理员安全密钥要求'"
+      :footer="false"
+      :width="isMobile ? '92vw' : 520"
+    >
+      <p v-if="needsSecondOrdinaryKey" class="security-muted" style="margin-top: 0">
+        你已绑定第 1 把普通安全密钥，还需再绑定第 2 把不同的外置安全密钥，方可完成管理员安全配置。
+      </p>
+      <ul style="margin: 0; padding-left: 20px; line-height: 1.75">
+        <li>管理员需绑定 <strong>2 把不同的普通外置安全密钥</strong>，或 <strong>1 把 FIPS 140-2 L2 / CC EAL4+ 以上高认证安全密钥</strong>（须跨平台外置、不可备份同步且支持 PIN 或生物识别）。</li>
+        <li>普通密钥登录需搭配第 2 把密钥、密码、二次验证器或邮箱验证码；高认证密钥支持单因素登录（超级／特权管理使用本站认证智能卡时仍需额外密钥或密码／二次验证器／邮箱验证）。</li>
+      </ul>
+      <a-button type="primary" long style="margin-top: 16px" @click="openKeySetupFromGuide">
+        {{ needsSecondOrdinaryKey ? '我知道了，继续绑定第 2 把密钥' : '我知道了，去绑定密钥' }}
+      </a-button>
+    </a-modal>
   </div>
 </template>

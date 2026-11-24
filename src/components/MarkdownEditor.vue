@@ -92,8 +92,6 @@ const handleUploadImg = async (
 
 <template>
   <MdEditor
-    cropperJs="https://cdn.staticfile.org/cropperjs/1.5.12/cropper.min.js"
-    cropperCss="https://cdn.staticfile.org/cropperjs/1.5.12/cropper.min.css"
     :modelValue="content"
     :sanitize="sanitizeMarkdown"
     :sanitizeMermaid="sanitizeMermaid"

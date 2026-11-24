@@ -39,7 +39,8 @@ export function serializeCredential(credential: PublicKeyCredential) {
   const assertion = response as AuthenticatorAssertionResponse;
   return {...common, response: {
     clientDataJSON: encode(assertion.clientDataJSON), authenticatorData: encode(assertion.authenticatorData),
-    signature: encode(assertion.signature), userHandle: assertion.userHandle ? encode(assertion.userHandle) : null,
+    signature: encode(assertion.signature),
+    userHandle: assertion.userHandle && assertion.userHandle.byteLength > 0 ? encode(assertion.userHandle) : null,
   }};
 }
 
@@ -70,13 +71,13 @@ export async function getAssertion(options: JsonOptions, connection:'browser'|'s
   return {challenge_id: options.challenge_id, credential: serializeCredential(credential)};
 }
 
-export async function reauthenticate() {
+export async function reauthenticate(connection?: 'browser'|'smartcard') {
   const {data} = await Axios.post('/security/reauth-begin/');
-  await Axios.post('/security/reauth-finish/', await getAssertion(data));
+  return (await Axios.post('/security/reauth-finish/', await getAssertion(data, connection))).data;
 }
 
 export function securityError(error: any): string {
-  if (error?.name === 'NotAllowedError') return '验证已取消或超时，请重试';
+  if (error?.name === 'NotAllowedError') return '验证已取消或超时，请重试（若使用非可发现安全密钥，请先填写账号）';
   if (error?.name === 'InvalidStateError') return '此密钥可能已经绑定，请换一把密钥';
   return error?.response?.data?.msg || error?.message || '验证未完成';
 }

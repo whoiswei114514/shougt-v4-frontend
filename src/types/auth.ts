@@ -16,10 +16,14 @@ export interface SecurityState {
   is_admin_candidate: boolean;
   admin_onboarding_required: boolean;
   admin_setup_ready: boolean;
+  admin_keys_satisfied?: boolean;
+  has_high_assurance_key?: boolean;
+  external_key_count?: number;
   admin_access: boolean;
   key_authenticated: boolean;
   session_key_assurance: KeyAssurance | null;
   fido_authenticated: boolean;
+  fido_fresh_seconds?: number;
   session_scope: 'full' | 'enrollment' | 'impersonation';
   totp_enabled: boolean;
   show_real_name: boolean;
@@ -28,6 +32,17 @@ export interface SecurityState {
   admin_suspended_until: string | null;
   impersonator_id: number | null;
   session_key_id?: number | null;
+  certificate_status?: 'valid' | 'expired' | 'missing' | 'not_required';
+  certificate_expires_at?: string | null;
+  certificate_required?: boolean;
+  needs_certificate_issuance?: boolean;
+  pending_issuance_count?: number;
+  signed_issuance_ready_count?: number;
+  pending_sign_requests_count?: number;
+  can_sign_issuance_requests?: boolean;
+  certificate_is_temporary?: boolean;
+  certificate_is_ca?: boolean;
+  self_issuance_available?: boolean;
 }
 
 export interface Quota {

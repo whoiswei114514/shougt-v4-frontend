@@ -7,6 +7,7 @@ import { useRoute } from 'vue-router';
 import router from './router';
 import { useStore } from './stores';
 import { sharedFunctions } from './stores';
+import { clearImpersonationIsolated } from './scripts/userInfo';
 import Axios from './axios';
 import SmartCardConnect from './components/SmartCardConnect.vue';
 const CaptchaModal = defineAsyncComponent(
@@ -19,11 +20,20 @@ const DonateCoin = defineAsyncComponent(
 const NotificationList = defineAsyncComponent(
   () => import('./components/Notification.vue')
 );
+const IssuanceModal = defineAsyncComponent(
+  () => import('./views/security/Issuance.vue')
+);
 
 const route = useRoute();
 const store = useStore();
 const endImpersonation = async () => {
-  try { await Axios.post('/security/logout/'); } finally { store.logout(); location.assign('/'); }
+  try {
+    await Axios.post('/security/logout/');
+  } finally {
+    clearImpersonationIsolated();
+    store.logout();
+    location.assign('/');
+  }
 };
 const goBack = () => {
   console.log(window.history.length);
@@ -37,6 +47,11 @@ const goBack = () => {
 themeInit();
 
 const showMenuDrawer = ref(false);
+const showIssuanceModal = ref(false);
+
+sharedFunctions.openIssuanceModal = () => {
+  showIssuanceModal.value = true;
+};
 
 onMounted(() => {
   sharedFunctions.scrollTop = () => {
@@ -101,6 +116,22 @@ onMounted(() => {
           正在代登录 {{store.user?.username}}，操作将同时记录超管与目标账号。
           <a-link @click="endImpersonation">结束代登录</a-link>
         </a-alert>
+        <a-alert
+          v-if="!showIssuanceModal && store.security?.admin_access && (store.security?.pending_sign_requests_count || 0) > 0"
+          type="info"
+          style="margin:12px auto 0;max-width:1000px"
+        >
+          待处理提醒：有 {{ store.security.pending_sign_requests_count }} 份其他管理员提交的硬件证书公钥等待签署（CA 卡 / 超管卡 / 超级特权卡）。
+          <a-link @click="showIssuanceModal = true" style="margin-left:8px;font-weight:600">打开签署弹窗</a-link>
+        </a-alert>
+        <a-alert
+          v-if="!showIssuanceModal && store.security?.admin_access && (store.security?.signed_issuance_ready_count || 0) > 0"
+          type="success"
+          style="margin:12px auto 0;max-width:1000px"
+        >
+          证书签发提醒：您有 {{ store.security.signed_issuance_ready_count }} 份离线证书申请已由管理员签署完成，请导入证书链并完成持钥激活。
+          <a-link @click="showIssuanceModal = true" style="margin-left:8px;font-weight:600">立即弹出导入激活</a-link>
+        </a-alert>
         <div style="width: min(max(75vw, 1300px), 95vw); margin: 0 auto">
           <!-- <RouterView v-slot="{ Component }">
             <keep-alive>
@@ -128,5 +159,16 @@ onMounted(() => {
     <Suspense> <NotificationList /> </Suspense>
     <Suspense> <CaptchaModal /> </Suspense>
     <SmartCardConnect />
+    <a-modal
+      v-model:visible="showIssuanceModal"
+      title="特权管理证书签发"
+      :footer="false"
+      :width="isMobile ? '96vw' : 900"
+      unmount-on-close
+    >
+      <Suspense>
+        <IssuanceModal modal @close="showIssuanceModal = false" />
+      </Suspense>
+    </a-modal>
   </a-config-provider>
 </template>

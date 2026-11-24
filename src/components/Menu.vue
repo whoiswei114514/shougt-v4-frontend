@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { useStore, usePersistStore, sharedFunctions } from '../stores';
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import router from '../router';
 import Avatar from './Avatar.vue';
 import { Theme } from '../types';
 import isMobile from '../consts/isMobile';
 import Axios from '../axios';
-import { Notification } from '@arco-design/web-vue';
+import { Message, Notification } from '@arco-design/web-vue';
 import { Checks as IconChecks } from '@vicons/tabler';
+import { getAssertion, securityError } from '../scripts/webauthn';
+import { clearCapturedImpersonationTicket } from '../scripts/impersonationTicket';
+import { validateConsoleHandoffUrl } from '../scripts/securityUrls';
 
 defineProps<{
   mode: 'horizontal' | 'vertical';
@@ -103,9 +106,58 @@ const getRandomHints = (coinNum: number) => {
   }
 };
 
+const openingConsole = ref(false);
+const canOpenPrivilegedConsole = computed(() =>
+  Boolean(store.security?.admin_access && store.security?.is_privileged)
+);
+const showAdminMenu = computed(() =>
+  Boolean(store.permission.base_admin || canOpenPrivilegedConsole.value)
+);
+
+const openPrivilegedConsole = async () => {
+  if (openingConsole.value) return;
+  if (store.security?.needs_certificate_issuance) {
+    Message.info(
+      store.security.certificate_status === 'expired'
+        ? '你的特权管理证书已过期，请先在弹窗中重新签发硬件证书'
+        : '首次进入独立特权管理站前，请先在弹窗中完成硬件证书签发'
+    );
+    sharedFunctions.openIssuanceModal();
+    detectMenuKey();
+    return;
+  }
+  openingConsole.value = true;
+  const target = window.open('about:blank', 'shou-privileged');
+  try {
+    const [{ data }, configRes] = await Promise.all([
+      Axios.post('/security/console-begin/'),
+      Axios.get('/security/config/'),
+    ]);
+    const result = await Axios.post(
+      '/security/console-finish/',
+      await getAssertion(data)
+    );
+    const consoleUrl = validateConsoleHandoffUrl(
+      result.data?.url,
+      configRes.data?.console_url
+    );
+    if (target) target.location.href = consoleUrl;
+    else window.location.assign(consoleUrl);
+  } catch (error) {
+    target?.close();
+    Message.error(securityError(error));
+  } finally {
+    openingConsole.value = false;
+    detectMenuKey();
+  }
+};
+
 const handleMenuClick = (key: string) => {
   emit('close');
-  if (key.indexOf('theme_') === 0) {
+  if (key === 'privileged_console') {
+    openPrivilegedConsole();
+    return;
+  } else if (key.indexOf('theme_') === 0) {
     const theme = key.replace('theme_', '');
     if (persistStore.setTheme(theme as Theme)) {
       window.location.reload();
@@ -168,6 +220,7 @@ const finishSelectRole = () => {
 
 const handleLogout = async () => {
   try { await Axios.post('/security/logout/'); } catch (_) {}
+  clearCapturedImpersonationTicket();
   if (store.security?.session_scope === 'impersonation') store.logout();
   else sharedFunctions.logout();
   document.location.reload();
@@ -177,6 +230,7 @@ const handleLogout = async () => {
 <template>
   <a-menu
     :mode="mode"
+    :popup-max-height="false"
     @menu-item-click="handleMenuClick"
     v-model:selected-keys="selectedKeys"
     :class="{ 'no-select': true, 'menu-mobile': isMobile }"
@@ -244,7 +298,7 @@ const handleLogout = async () => {
       class="no-scrollbar"
       key="admin"
       title="管理"
-      v-if="store.permission.base_admin"
+      v-if="showAdminMenu"
     >
       <template #icon>
         <IconCommand />
@@ -273,6 +327,13 @@ const handleLogout = async () => {
       <a-menu-item key="route_admin-image" v-if="store.permission.admin_image">图片管理</a-menu-item>
       <a-menu-item key="route_admin-video" v-if="store.permission.admin_image">视频管理</a-menu-item>
       <a-menu-item key="route_admin-file" v-if="store.permission.admin_file">文件仓管</a-menu-item>
+      <a-menu-item
+        key="privileged_console"
+        v-if="canOpenPrivilegedConsole"
+        :disabled="openingConsole"
+      >
+        {{ openingConsole ? '正在进入超级管理...' : '超级管理' }}
+      </a-menu-item>
     </a-sub-menu>
 
     <div :style="{ float: mode === 'horizontal' ? 'right' : undefined }">
@@ -480,7 +541,8 @@ const handleLogout = async () => {
   display: none;
 }
 .arco-trigger-menu {
-  overflow: unset;
+  max-height: 75vh !important;
+  overflow-y: auto !important;
 }
 .arco-trigger-menu::-webkit-scrollbar {
   width: 0;

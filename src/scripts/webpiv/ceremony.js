@@ -1,6 +1,6 @@
 import {base64, canonical, equal, pem} from './bytes.js';
 import {
-  ALGORITHMS, CLIENT_SLOTS, makeCsr, makeCertificate, selectCa, validateInstallation,
+  ALGORITHMS, CLIENT_SLOTS, fingerprint, makeCsr, makeCertificate, selectCa, validateInstallation,
   writeProof, certificateKey, requireActive,
 } from './crypto.js';
 import {PivCard} from './transport.js';
@@ -106,15 +106,28 @@ export class WebPivCeremony {
   async sign(card, chosen, job, options) {
     if (job.state !== 'key_ready') throw new Error('请先提交新卡 CSR 并取得写卡挑战');
     const {slot, ca, chain} = await selectCa(card, job, options.ca_slot);
+    const caFp = await fingerprint(ca);
+    const desc = (job.authority_descriptors || []).find(item => item.fingerprint === caFp) || null;
+    const cardTypeLabel = desc ? `${desc.label}${desc.owner_name ? `（${desc.owner_name}）` : ''}` : (job.temporary ? 'CA 卡 / 超管卡 / 超级特权卡' : 'CA 卡');
+    const expiryNote = (desc?.temporary_only || job.temporary)
+      ? `\n注意：使用超管卡 / 超级特权卡签发的证书有效期仅限 37 天内（本次 ${job.validity_days} 天），属于临时最终证书，不可用于再次签发。`
+      : '';
     if (!await this.confirm({stage: 'sign', name: chosen.name, slot, real_name: job.real_name, roles: job.roles,
-      message: `核对本次签发对象及公钥摘要 ${job.public_key_sha256}，使用 CA 槽位 ${slot} 签发。`}))
+      issuer_descriptor: desc,
+      message: `核对本次签发对象及公钥摘要 ${job.public_key_sha256}。\n检测到签发卡类型：【${cardTypeLabel}】· 槽位 ${slot}。${expiryNote}`}))
       throw new Error('已取消 CA 签发');
     await card.verifyPin(await this.secret({kind: 'pin', stage: 'sign', name: chosen.name}));
     requireActive(job);
     const key = await certificateKey(ca);
     const leaf = await makeCertificate(job, ca, chain, data => card.sign(slot, key, data));
-    this.progress(`CA 槽位 ${slot} 已完成签发`);
-    return {...job, issuer_slot: slot, chain_pem: [leaf, ...chain].map(certificate => pem('CERTIFICATE', certificate.der))};
+    this.progress(`已使用【${desc ? desc.label : 'CA 卡'}】槽位 ${slot} 完成签发${desc?.temporary_only ? '（有效期仅限 37 天内）' : ''}`);
+    return {
+      ...job,
+      issuer_slot: slot,
+      issuer_fingerprint: caFp,
+      issuer_descriptor: desc,
+      chain_pem: [leaf, ...chain].map(certificate => pem('CERTIFICATE', certificate.der)),
+    };
   }
   async install(card, chosen, job, options) {
     const {certificates, leaf, chain, key} = await validateInstallation(job), slot = job.card.slot;

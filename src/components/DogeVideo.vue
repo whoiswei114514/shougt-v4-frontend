@@ -15,17 +15,47 @@ const loading = ref(false);
 const playtoken = ref(null);
 
 const playerId = Math.random().toString(36).substring(2, 15);
+let dogeLoaderPromise: Promise<void> | null = null;
 
-const loadVideo = () => {
-  if (window.DogePlayer === undefined) {
-    Message.error('播放器初始化失败');
-    return;
+const ensureDogePlayer = (): Promise<void> => {
+  if (window.DogePlayer !== undefined) {
+    return Promise.resolve();
   }
-  if (!props.video.id) {
+  if (!dogeLoaderPromise) {
+    dogeLoaderPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://player.dogecloud.com/js/loader';
+      script.async = true;
+      script.referrerPolicy = 'no-referrer';
+      script.onload = () => resolve();
+      script.onerror = () => {
+        dogeLoaderPromise = null;
+        reject(new Error('DogePlayer load failed'));
+      };
+      document.head.appendChild(script);
+    });
+  }
+  return dogeLoaderPromise;
+};
+
+const loadVideo = async () => {
+  if (!props.video?.id) {
     Message.error('视频信息缺失');
     return;
   }
   loading.value = true;
+  try {
+    await ensureDogePlayer();
+  } catch {
+    Message.error('播放器初始化失败');
+    loading.value = false;
+    return;
+  }
+  if (window.DogePlayer === undefined) {
+    Message.error('播放器初始化失败');
+    loading.value = false;
+    return;
+  }
   Axios.get(`/video/${props.video.id}/`)
     .then(res => {
       playtoken.value = res.data.playtoken;

@@ -5,6 +5,8 @@ const fixture=JSON.parse(fs.readFileSync(path.join(process.env.SHOUGT_UI_WORK!,'
 test('contact smartcard logs in and binds a credential through the real FIDO2 client',async({page,context})=>{
   await context.route('**/*',route=>{const url=new URL(route.request().url());return ['localhost','127.0.0.1','privileged.localhost'].includes(url.hostname)&&Number(url.port)>=10000?route.continue():route.abort();});
   await page.goto('http://localhost:15173/login/');
+  await expect(page.getByRole('button',{name:'使用接触式智能卡登录'})).toHaveCount(0);
+  await page.goto('http://localhost:15173/login/?pcsc=1');
   await page.getByPlaceholder('你的瓜田账号').fill(fixture.contact_card.username);
   await page.getByRole('button',{name:'使用接触式智能卡登录'}).click();
   const modal=page.locator('.arco-modal').filter({has:page.getByText('连接接触式智能卡',{exact:true})});
@@ -26,4 +28,47 @@ test('contact smartcard logs in and binds a credential through the real FIDO2 cl
   await page.getByPlaceholder('例如：随身安全密钥').fill('接触式卡新凭据');
   await page.getByRole('button',{name:'绑定新凭据'}).click();
   await expect(page.locator('.key-name').filter({hasText:'接触式卡新凭据'})).toBeVisible();
+});
+
+test('mobile Android browser defaults to non-discoverable NFC key registration and logs in cleanly',async({browser})=>{
+  const context=await browser.newContext({
+    viewport:{width:390,height:844},
+    userAgent:'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36 EdgA/135.0.0.0',
+  });
+  await context.route('**/*',route=>{const url=new URL(route.request().url());return ['localhost','127.0.0.1','privileged.localhost'].includes(url.hostname)&&Number(url.port)>=10000?route.continue():route.abort();});
+  try{
+    const page=await context.newPage();
+    const cdp=await context.newCDPSession(page);
+    await cdp.send('WebAuthn.enable');
+    await cdp.send('WebAuthn.addVirtualAuthenticator',{
+      options:{protocol:'ctap2',transport:'nfc',hasResidentKey:false,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true},
+    });
+    await page.goto('http://localhost:15173/login/');
+    await page.getByText('密码',{exact:true}).first().click();
+    await page.getByPlaceholder('你的瓜田账号').fill(fixture.normal.username);
+    await page.getByPlaceholder('请输入密码').fill(fixture.normal.password);
+    await page.getByRole('button',{name:'登录',exact:true}).click();
+    await expect(page).toHaveURL('http://localhost:15173/');
+
+    await page.goto('http://localhost:15173/settings/?tab=security');
+    await expect(page.locator('#security-key-setup')).toBeVisible();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+
+    const beginReqPromise=page.waitForRequest(req=>req.url().includes('/security/key-register-begin/')&&req.method()==='POST');
+    await page.getByPlaceholder('用于确认此次安全设置').fill(fixture.normal.password);
+    await page.getByPlaceholder('例如：随身安全密钥').fill('移动 NFC 智能卡');
+    await page.getByRole('button',{name:'绑定新凭据'}).click();
+    const beginReq=await beginReqPromise;
+    expect(beginReq.postDataJSON().resident_key).toBe('discouraged');
+    await expect(page.locator('.key-name').filter({hasText:'移动 NFC 智能卡'})).toBeVisible();
+
+    await context.clearCookies();
+    await page.evaluate(()=>{localStorage.clear();sessionStorage.clear();});
+    await page.goto('http://localhost:15173/login/');
+    await page.getByPlaceholder('你的瓜田账号').fill(fixture.normal.username);
+    await page.getByRole('button',{name:'使用安全密钥或通行密钥登录'}).click();
+    await expect(page).toHaveURL('http://localhost:15173/');
+  }finally{
+    await context.close();
+  }
 });

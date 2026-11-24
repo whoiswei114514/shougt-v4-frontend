@@ -85,9 +85,18 @@ if certified_key:
     trust[0].update(assurance="fips140-2-level2", certification_reference="ISOLATED UI TEST FIPS RECORD",
                     certifications=[{"standard": "CC", "level": "EAL4+", "reference": "ISOLATED UI TEST CC RECORD"}])
 (work / "fido-trust.json").write_text(json.dumps(trust), encoding="utf-8")
+if not certified_key:
+    add_key(root)
+CERT_IDENTITY_FIELDS = ("fingerprint", "real_name", "issuer_fingerprint", "serial_number", "expires_at", "is_ca", "is_temporary")
+
+
+def cert_identity_kwargs(verified):
+    return {key: verified[key] for key in CERT_IDENTITY_FIELDS if key in verified}
+
+
 pki = PKI(work / "pki", root.real_name)
 cert = CertificateVerifier(pki.config).verify(pki.client_der)
-ClientCertificateIdentity.objects.create(user=root, **cert)
+ClientCertificateIdentity.objects.create(user=root, **cert_identity_kwargs(cert))
 config = {"origin":"https://privileged.localhost:18443", "main_origin":"http://localhost:15173",
           "host":"127.0.0.1", "port":18443, "database":{"engine":"sqlite","path":str(database)}, "tls":pki.config}
 (work / "console.json").write_text(json.dumps(config), encoding="utf-8")
@@ -117,6 +126,7 @@ fixture["privacy_audit"] = {
 # Separate credentials keep new dual-key/read-only browser scenarios independent.
 reader, _ = make_user("ui_reader", roles=["global_reader"])
 reader_key, reader_virtual = add_key(reader)
+add_key(reader)
 dual, _ = make_user("ui_dual", roles=["super_admin"])
 dual_key, dual_virtual = add_key(dual)
 dual_second, dual_other = add_key(dual)
@@ -128,24 +138,29 @@ fixture["reader"] = browser_key(reader, reader_key, reader_virtual)
 fixture["dual"] = browser_key(dual, dual_key, dual_virtual)
 fixture["dual_second"] = browser_key(dual, dual_second, dual_other)
 from tests.certificates_fixture import issue
+_, dual_cert = issue(dual.real_name, issuer=pki.sub, issuer_key=pki.sub_key, client=True)
+ClientCertificateIdentity.objects.create(user=dual, **cert_identity_kwargs(CertificateVerifier(pki.config).verify(dual_cert.public_bytes(serialization.Encoding.DER))))
 reader_private, reader_cert = issue(reader.real_name, issuer=pki.sub, issuer_key=pki.sub_key, client=True)
 pki.write_pair("reader", reader_cert, reader_private)
-ClientCertificateIdentity.objects.create(user=reader, **CertificateVerifier(pki.config).verify(reader_cert.public_bytes(serialization.Encoding.DER)))
+ClientCertificateIdentity.objects.create(user=reader, **cert_identity_kwargs(CertificateVerifier(pki.config).verify(reader_cert.public_bytes(serialization.Encoding.DER))))
 fixture["reader_certificate"] = str(work / "pki/reader.pem")
 fixture["reader_private_key"] = str(work / "pki/reader-key.pem")
 issuer, _ = make_user("ui_issuer", roles=["super_admin"])
 issuer_key, issuer_virtual = add_key(issuer)
+add_key(issuer)
 fixture["issuer"] = browser_key(issuer, issuer_key, issuer_virtual)
 issuer_private, issuer_cert = issue(issuer.real_name, issuer=pki.sub, issuer_key=pki.sub_key, client=True)
 pki.write_pair("issuer", issuer_cert, issuer_private)
-ClientCertificateIdentity.objects.create(user=issuer, **CertificateVerifier(pki.config).verify(issuer_cert.public_bytes(serialization.Encoding.DER)))
+ClientCertificateIdentity.objects.create(user=issuer, **cert_identity_kwargs(CertificateVerifier(pki.config).verify(issuer_cert.public_bytes(serialization.Encoding.DER))))
 fixture["issuer_certificate"] = str(work / "pki/issuer.pem")
 fixture["issuer_private_key"] = str(work / "pki/issuer-key.pem")
 recipient, _ = make_user("ui_issue_recipient", roles=["base_admin"])
 add_key(recipient)
+add_key(recipient)
 fixture["issuance_recipient"] = {"user_id":recipient.pk,"username":recipient.username}
 onboarding, _ = make_user("ui_onboarding", roles=["admin_user"])
 onboarding_key, onboarding_virtual = add_key(onboarding)
+add_key(onboarding)
 onboarding.admin_onboarding_required = True
 onboarding.save(update_fields=["admin_onboarding_required"])
 fixture["onboarding"] = browser_key(onboarding, onboarding_key, onboarding_virtual)
@@ -154,9 +169,11 @@ contact_key, contact_virtual = add_key(contact_user)
 fixture["contact_card"] = browser_key(contact_user, contact_key, contact_virtual)
 phone_recipient, _ = make_user("ui_phone_recipient", roles=["base_admin"])
 add_key(phone_recipient)
+add_key(phone_recipient)
 fixture["phone_recipient"] = {"user_id":phone_recipient.pk,"username":phone_recipient.username}
 for label in ("webusb", "webusb_rsa"):
     web_recipient, _ = make_user("ui_" + label + "_recipient", roles=["base_admin"])
+    add_key(web_recipient)
     add_key(web_recipient)
     fixture[label + "_recipient"] = {"user_id":web_recipient.pk,"username":web_recipient.username}
 import secrets

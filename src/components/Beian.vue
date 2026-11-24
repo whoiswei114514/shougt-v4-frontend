@@ -10,13 +10,19 @@ const year = new Date().getFullYear();
     <RouterLink :to="{ name: 'about' }">
       <a-link> 版权所有 © {{ year }} shou瓜田 </a-link>
     </RouterLink>
-    <a-link v-if="icp" href="https://beian.miit.gov.cn/" target="_blank">
+    <a-link
+      v-if="icp"
+      href="https://beian.miit.gov.cn/"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
       {{ icp }}
     </a-link>
     <a-link
       v-if="policeNumber && policeLabel"
       :href="`https://beian.mps.gov.cn/#/query/webSearch?code=${encodeURIComponent(policeNumber)}`"
       target="_blank"
+      rel="noopener noreferrer"
     >
       <template #icon>
         <div style="margin-top: 0.18em">

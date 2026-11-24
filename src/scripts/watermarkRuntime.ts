@@ -4,7 +4,7 @@ import html2canvas from 'html2canvas';
 export interface WatermarkFrame {
   version: number; watermark_id: string; actor_id: number; username: string; real_name: string;
   audit_id: number | null; operation_at: string | null; issued_at: string;
-  token: string; shards: string[]; refresh_after_ms: number;
+  token: string; shards: string[]; micro?: string; refresh_after_ms: number;
 }
 interface Options {
   loadFrame?: () => Promise<WatermarkFrame>;
@@ -20,23 +20,71 @@ const bytes = (value: string) => Uint8Array.from(atob(value), char => char.charC
 const bits = (value: Uint8Array) => Array.from(value).flatMap(byte =>
   Array.from({length: 8}, (_, index) => (byte >> (7 - index)) & 1));
 const pilot = bits(Uint8Array.from([0x53,0x48,0x4f,0x55,0x32,0xa5,0x6c,0x39,0xdb,0x81,0x17,0xee]));
-const renderMask = new Uint8Array(255);
-let maskState = 0x53484f55;
-for (let index = 0; index < renderMask.length; index++) {
-  maskState = (Math.imul(maskState, 1664525) + 1013904223) >>> 0;
-  renderMask[index] = maskState >>> 24;
+const microPilot = bits(Uint8Array.from([0x53,0x48,0x4f,0x33,0xa5,0xc3]));
+function makeMask(seed: number, length: number) {
+  const output = new Uint8Array(length);
+  let state = seed >>> 0;
+  for (let index = 0; index < length; index++) {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    output[index] = state >>> 24;
+  }
+  return output;
 }
+const renderMask = makeMask(0x53484f55, 255);
+const microRenderMask = makeMask(0x53484f33, 56);
 const shardBits = (value: string) => bits(bytes(value).map((byte, index) => byte ^ renderMask[index]));
+const microShardBits = (value: string) => bits(bytes(value).map((byte, index) => byte ^ microRenderMask[index]));
 
-function frequencyTile(payload: number[]) {
-  const size = 256, fft = new FFT(size), field = new Float64Array(size * size * 2);
+const MICRO_PILOT_COORDS: [number, number][] = [];
+const microPilotSet = new Set<string>();
+for (let vs = -8; vs <= -2; vs++) for (let u = 1; u <= 7; u++) {
+  if (MICRO_PILOT_COORDS.length >= 48) break;
+  const v = (vs + 64) % 64;
+  MICRO_PILOT_COORDS.push([u, v]);
+  microPilotSet.add(`${u},${v}`);
+}
+const microCands: [number, number, number][] = [];
+for (let vs = -20; vs < 0; vs++) {
+  if (vs === -16) continue;
+  const v = (vs + 64) % 64;
+  for (let u = 1; u < 23; u++) {
+    if (u === 8 || u === 16 || microPilotSet.has(`${u},${v}`)) continue;
+    microCands.push([u * u + vs * vs, v, u]);
+  }
+}
+for (let vs = 3; vs < 21; vs++) {
+  if (vs === 16) continue;
+  for (let u = 1; u < 23; u++) {
+    if (u === 8 || u === 16 || (vs <= 8 && u >= 5)) continue;
+    microCands.push([u * u + vs * vs, vs, u]);
+  }
+}
+microCands.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+const MICRO_DATA_COORDS = microCands.slice(0, 448).map(([, v, u]) => [u, v] as const);
+const MICRO_SPATIAL_W = 120, MICRO_SPATIAL_H = 60;
+
+function crc32(data: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (let i = 0; i < data.length; i++) {
+    crc ^= data[i];
+    for (let bit = 0; bit < 8; bit++) {
+      crc = (crc & 1) ? ((crc >>> 1) ^ 0xedb88320) >>> 0 : (crc >>> 1);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function renderFrequencyTile(size: number, alpha: number,
+  populate: (carrier: (u: number, v: number, bit: number, amplitude: number) => void) => void) {
+  const fft = new FFT(size), field = new Float64Array(size * size * 2);
   const carrier = (u: number, v: number, bit: number, amplitude: number) => {
     const value = (bit ? 1 : -1) * amplitude * size * size / 2;
-    field[(v * size + u) * 2] = value;
-    field[((size - v) * size + size - u) * 2] = value;
+    const uu = (u % size + size) % size, vv = (v % size + size) % size;
+    const cu = (size - uu) % size, cv = (size - vv) % size;
+    field[(vv * size + uu) * 2] = value;
+    field[(cv * size + cu) * 2] = value;
   };
-  pilot.forEach((bit, index) => carrier(3 + index % 12, 3 + Math.floor(index / 12), bit, 4));
-  payload.forEach((bit, index) => carrier(18 + index % 64, 3 + Math.floor(index / 64), bit, 1.5));
+  populate(carrier);
   const input = new Float64Array(size * 2), output = new Float64Array(size * 2);
   for (let y = 0; y < size; y++) {
     fft.inverseTransform(output, field.subarray(y * size * 2, (y + 1) * size * 2));
@@ -54,18 +102,65 @@ function frequencyTile(payload: number[]) {
   const context = canvas.getContext('2d')!, image = context.createImageData(size, size);
   for (let index = 0; index < size * size; index++) {
     const value = Math.max(0, Math.min(255, Math.round(128 + field[index * 2])));
-    image.data.set([value, value, value, 9], index * 4);
+    image.data.set([value, value, value, alpha], index * 4);
   }
   context.putImageData(image, 0, 0);
   return canvas;
 }
 
+const frequencyTile = (payload: number[]) => renderFrequencyTile(256, 9, carrier => {
+  pilot.forEach((bit, index) => carrier(3 + index % 12, 3 + Math.floor(index / 12), bit, 4));
+  payload.forEach((bit, index) => carrier(18 + index % 64, 3 + Math.floor(index / 64), bit, 1.5));
+});
+
+const microFrequencyTile = (payload: number[]) => renderFrequencyTile(64, 10, carrier => {
+  microPilot.forEach((bit, index) => carrier(MICRO_PILOT_COORDS[index][0], MICRO_PILOT_COORDS[index][1], bit, 4));
+  payload.forEach((bit, index) => carrier(MICRO_DATA_COORDS[index][0], MICRO_DATA_COORDS[index][1], bit, 2.6));
+});
+
+function microSpatialTile(payload: number[], ink: string) {
+  const canvas = document.createElement('canvas');
+  canvas.width = MICRO_SPATIAL_W; canvas.height = MICRO_SPATIAL_H;
+  const context = canvas.getContext('2d')!;
+  context.fillStyle = `rgba(${ink},.032)`;
+  const cols = MICRO_SPATIAL_W / 4;
+  payload.forEach((bit, index) => {
+    const col = index % cols, row = Math.floor(index / cols);
+    const x = col * 4 + (bit ? 2 : 0), y0 = row * 4 + 3, y1 = (y0 + 1) % MICRO_SPATIAL_H;
+    context.fillRect(x, y0, 2, 1);
+    context.fillRect(x, y1, 2, 1);
+  });
+  return canvas;
+}
+
 function embedLsb(canvas: HTMLCanvasElement, token: string) {
-  const message = new TextEncoder().encode(`SHOU-WM2:${token}\0`), payload = bits(message);
+  const packet = bytes(token);
+  const record = new Uint8Array(10 + packet.length);
+  record.set([0x53, 0x4c, 0x32, 0x21], 0);
+  record[4] = (packet.length >> 8) & 0xff;
+  record[5] = packet.length & 0xff;
+  record.set(packet, 6);
+  const sum = crc32(record.subarray(0, 6 + packet.length));
+  record[6 + packet.length] = (sum >>> 24) & 0xff;
+  record[7 + packet.length] = (sum >>> 16) & 0xff;
+  record[8 + packet.length] = (sum >>> 8) & 0xff;
+  record[9 + packet.length] = sum & 0xff;
+  const recordBits = bits(record);
+  const tileSize = recordBits.length <= 32 * 32 * 3 ? 32 : 64;
+  const tileBits = new Uint8Array(tileSize * tileSize * 3);
+  tileBits.set(recordBits);
   const context = canvas.getContext('2d', {willReadFrequently: true})!;
   const image = context.getImageData(0, 0, canvas.width, canvas.height);
-  for (let index = 0; index < image.data.length / 4; index++) {
-    image.data[index * 4] = (image.data[index * 4] & 254) | payload[index % payload.length];
+  const {width, height, data} = image;
+  for (let y = 0; y < height; y++) {
+    const ty = y % tileSize;
+    for (let x = 0; x < width; x++) {
+      const tx = x % tileSize;
+      const dst = (y * width + x) * 4, src = (ty * tileSize + tx) * 3;
+      data[dst] = (data[dst] & 254) | tileBits[src];
+      data[dst + 1] = (data[dst + 1] & 254) | tileBits[src + 1];
+      data[dst + 2] = (data[dst + 2] & 254) | tileBits[src + 2];
+    }
   }
   context.putImageData(image, 0, 0);
 }
@@ -90,7 +185,9 @@ export function installAdminWatermark(marker: string, actor: string,
   const scheme = matchMedia('(prefers-color-scheme: dark)');
   let stopped = false, pending = 0, capturing = false, frame = options.frame;
   let resizeTimer: ReturnType<typeof setTimeout>, timer: ReturnType<typeof setTimeout>;
-  let loading: Promise<void> | undefined, frequencyPattern: HTMLCanvasElement | undefined, refreshAgain = false;
+  let loading: Promise<void> | undefined, frequencyPattern: HTMLCanvasElement | undefined,
+    microFrequencyPattern: HTMLCanvasElement | undefined, microSpatialPattern: HTMLCanvasElement | undefined,
+    microSpatialInk = '', refreshAgain = false;
   const dark = () => document.body.getAttribute('arco-theme') === 'dark' ||
     (document.body.getAttribute('arco-theme') !== 'light' && scheme.matches);
 
@@ -164,6 +261,14 @@ export function installAdminWatermark(marker: string, actor: string,
           }
         }
       });
+      if (frame.micro) {
+        if (!microSpatialPattern || microSpatialInk !== ink) {
+          microSpatialPattern = microSpatialTile(microShardBits(frame.micro), ink);
+          microSpatialInk = ink;
+        }
+        hidden.fillStyle = hidden.createPattern(microSpatialPattern, 'repeat')!;
+        hidden.fillRect(0, 0, innerWidth, innerHeight);
+      }
       if (!frequencyPattern) {
         frequencyPattern = document.createElement('canvas');
         frequencyPattern.width = 256; frequencyPattern.height = frame.shards.length * 256;
@@ -173,6 +278,11 @@ export function installAdminWatermark(marker: string, actor: string,
       const frequency = layers[2].getContext('2d')!;
       frequency.fillStyle = frequency.createPattern(frequencyPattern, 'repeat')!;
       frequency.fillRect(0, 0, innerWidth, innerHeight);
+      if (frame.micro) {
+        if (!microFrequencyPattern) microFrequencyPattern = microFrequencyTile(microShardBits(frame.micro));
+        frequency.fillStyle = frequency.createPattern(microFrequencyPattern, 'repeat')!;
+        frequency.fillRect(0, 0, innerWidth, innerHeight);
+      }
       const lsb = layers[3].getContext('2d')!;
       lsb.fillStyle = dark() ? '#dce6e0' : '#2d4b5f'; lsb.fillRect(0, 0, innerWidth, innerHeight);
       embedLsb(layers[3], frame.token);
@@ -196,10 +306,12 @@ export function installAdminWatermark(marker: string, actor: string,
         const next = await options.loadFrame!();
         if (stopped) return;
         if (next.version !== 2 || next.watermark_id !== marker || !next.shards?.length ||
-            next.shards.length > 8 || next.shards.some(shard => bytes(shard).length !== 255)) {
+            next.shards.length > 8 || next.shards.some(shard => bytes(shard).length !== 255) ||
+            (next.micro && bytes(next.micro).length !== 56)) {
           throw new Error('服务端水印载荷无效');
         }
-        frame = next; frequencyPattern = undefined; paint();
+        frame = next; frequencyPattern = undefined; microFrequencyPattern = undefined;
+        microSpatialPattern = undefined; paint();
       } while (refreshAgain && !stopped);
     })();
     try { await loading; } finally { loading = undefined; schedule(); }

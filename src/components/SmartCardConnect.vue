@@ -15,7 +15,7 @@ const command=computed(()=>`python -m backend.fido_bridge --origin ${location.or
       <a-button :loading="cardConnection.busy" @click="detectSmartCards">检测智能卡</a-button>
       <a-button v-if="cardConnection.connected" :disabled="cardConnection.busy" type="text" @click="resetSmartCardConnection">更换本机工具</a-button>
       <a-form-item v-if="cardConnection.connected" label="智能卡读卡器" style="margin-top:16px">
-        <a-select v-model="cardConnection.reader"><a-option v-for="card in cardConnection.readers" :key="card.id" :value="card.id">{{card.name}} · {{card.fido2?'FIDO2':'等待卡片'}}</a-option></a-select>
+        <a-select v-model="cardConnection.reader"><a-option v-for="card in cardConnection.readers" :key="card.id" :value="card.id">{{card.name}} · {{card.fido2?(card.fido2_pin_set===false?'FIDO2（首次需设 PIN）':'FIDO2'):card.fido2_access_denied?'FIDO2 需管理员权限':'等待卡片'}}</a-option></a-select>
       </a-form-item>
       <p role="status" style="overflow-wrap:anywhere">{{cardConnection.message}}</p>
       <details><summary>启动本机工具</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{command}}</pre></details>

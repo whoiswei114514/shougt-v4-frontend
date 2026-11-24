@@ -1,4 +1,5 @@
 // Vue初始化
+import './scripts/impersonationTicket';
 import { createApp } from 'vue';
 import './styles/arco-override.css';
 import './styles/style.scss';
@@ -9,7 +10,8 @@ import { createPinia } from 'pinia';
 import piniaPluginPersistedstate from 'pinia-plugin-persistedstate';
 import { Notification, Message } from '@arco-design/web-vue';
 
-import { initUserInfo } from './scripts/userInfo';
+import { initUserInfo, syncPersistFromStorage } from './scripts/userInfo';
+import { scrubTicketFromLocation } from './scripts/impersonationTicket';
 
 const pinia = createPinia();
 pinia.use(piniaPluginPersistedstate);
@@ -24,6 +26,7 @@ Message._context = app._context;
 // 用户信息获取
 
 void (async () => {
+  scrubTicketFromLocation();
   await initUserInfo();
   app.use(router);
   await router.isReady();
@@ -32,6 +35,16 @@ void (async () => {
 setInterval(() => {
   initUserInfo();
 }, 1000 * 60 * 5);
+window.addEventListener('storage', event => {
+  if (event.key === 'persistStorage') {
+    const outcome = syncPersistFromStorage();
+    if (outcome === 'switched') {
+      void initUserInfo();
+    } else if (outcome === 'logged_out' && router.currentRoute.value.meta.requireLogin) {
+      void router.replace({ name: 'login' });
+    }
+  }
+});
 
 // Markdown配置
 
@@ -39,6 +52,16 @@ import { config as mdEditorConfig } from 'md-editor-v3';
 import mermaid from 'mermaid';
 
 mdEditorConfig({
+  mermaidConfig: base => ({
+    ...base,
+    securityLevel: 'strict',
+  }),
+  katexConfig: base => ({
+    ...base,
+    trust: false,
+    strict: false,
+    maxExpand: 200,
+  }),
   editorExtensions: {
     prettier: {
       standaloneJs: '/js/prettier-standalone.min.js',

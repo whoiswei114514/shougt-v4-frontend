@@ -179,10 +179,11 @@ const coinChangeForm = reactive({
     <a-typography-title :heading="5"> 老学究权限 </a-typography-title>
     <a-switch v-model="noReview" />
     <span style="margin-left:12px">老学究 · 免审并放宽发帖配额</span>
-    <p>其他管理岗位的任免和超级管理员代登录请使用独立特权管理站。</p>
-    <a-button type="primary" status="warning" @click="changePermission">
-      修改
-    </a-button>
+    <div style="margin-top: 12px">
+      <a-button type="primary" status="warning" @click="changePermission">
+        修改
+      </a-button>
+    </div>
   </div>
 
   <a-divider />

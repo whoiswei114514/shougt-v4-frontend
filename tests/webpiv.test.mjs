@@ -8,12 +8,22 @@ import {
   AttributeTypeAndValue, BasicConstraints, Certificate, CertificationRequest, Extension,
 } from 'pkijs';
 import {appletRPC} from './webpiv-rpc.mjs';
-import {concat, hex, unhex, unpem} from '../src/scripts/webpiv/bytes.js';
-import {blockCipher, certificateFromPem, sha, publicKeyInfo, verifySignature} from '../src/scripts/webpiv/crypto.js';
-import {exportPkcs12, importPkcs12} from '../src/scripts/webpiv/pkcs12.js';
+import {concat, hex, pem, tlv, unhex, unpem} from '../src/scripts/webpiv/bytes.js';
 import {
-  generateBrowserKey, importCaPkcs12ToVault, installBrowserCert, listCaEntries, signWithBrowserCa,
-} from '../src/scripts/webpiv/browserCeremony.js';
+  blockCipher, certificateFromPem, derEcdsa, makeCertificate, makeCsr, sha, publicKeyInfo, validateInstallation, verifySignature,
+} from '../src/scripts/webpiv/crypto.js';
+import * as browserCeremony from '../src/scripts/webpiv/browserCeremony.js';
+import {isSafeAttrUri, sanitizeCssText} from '../src/scripts/sanitizeMarkdown.ts';
+import {getTrustedConsoleOrigin, isValidUuid, sanitizeSafeNextPath, validateConsoleHandoffUrl, validateRelativeRedirectUrl} from '../src/scripts/securityUrls.ts';
+import {
+  validateFidoAssertionResult,
+  validateInstallBridgeResult,
+  validateLoopbackBridgeUrl,
+  validatePcscReadersPayload,
+  validateSlotDecisionPayload,
+  verifyGenerateBridgeResult,
+  verifySignBridgeResult,
+} from '../src/scripts/bridgeValidation.ts';
 import {CanoKeyChannel, PivCard} from '../src/scripts/webpiv/transport.js';
 import {WebPivCeremony} from '../src/scripts/webpiv/ceremony.js';
 
@@ -234,117 +244,241 @@ async function makeTestPkiCa(cn, pathLenConstraint, issuerCert = null, issuerPri
   return {cert, pemText, pkcs8Der, privateKey: keyPair.privateKey};
 }
 
-test('pure browser WebCrypto + PKCS#12 issues SuperAdmin CA (pathLen=0) and <37-day 4-level temporary final certs', async () => {
+test('no software .p12 export or browser key vault path exists and delegated CA / <37d limits hold', async () => {
+  assert.equal(fs.existsSync(path.resolve('src/scripts/webpiv/pkcs12.js')), false);
+  assert.equal(fs.existsSync(path.resolve('src/scripts/webpiv/vault.js')), false);
+  assert.deepEqual(Object.keys(browserCeremony), ['findAuthorityDescriptor']);
+
+  const signEcdsa = privateKey => async tbs =>
+    derEcdsa(new Uint8Array(await globalThis.crypto.subtle.sign({name: 'ECDSA', hash: 'SHA-384'}, privateKey, tbs)), 48);
+
   const rootCa = await makeTestPkiCa('Test Root CA', 2);
   const subCa = await makeTestPkiCa('Test Sub CA', 1, rootCa.cert, rootCa.privateKey);
-  const subPem = subCa.pemText;
-  const subCaP12 = await exportPkcs12({pkcs8Der: subCa.pkcs8Der, chainPem: [subPem, rootCa.pemText], password: 'sub-ca-pass-123'});
+
+  const targetKeys = await globalThis.crypto.subtle.generateKey({name: 'ECDSA', namedCurve: 'P-384'}, true, ['sign', 'verify']);
+  const targetSpki = new Uint8Array(await globalThis.crypto.subtle.exportKey('spki', targetKeys.publicKey));
+  const targetKeyInfo = await publicKeyInfo(targetSpki);
 
   const superJob = {
     issuance_id: randomUUID(),
-    nonce: 'browser-super-nonce',
+    nonce: 'hw-super-nonce',
+    write_nonce: 'hw-super-write',
     user_id: 101,
     user_version: 1,
-    real_name: '超管浏览器测试',
+    real_name: '超管硬件测试',
     roles: ['super_admin'],
     state: 'requested',
     expires_at: new Date(Date.now() + 300000).toISOString(),
-    algorithms: ['P-384', 'RSA-3072', 'RSA-2048'],
-    authorities: [subPem],
+    algorithms: ['P-384'],
+    authorities: [subCa.pemText],
     roots: [rootCa.pemText],
     delegated_ca: true,
     temporary: false,
+    card: {
+      reader: 'fixture-usb',
+      slot: '9a',
+      algorithm: 'P-384',
+      transport: 'usb',
+      protocol: 'T=1',
+      platform: 'win32',
+      on_card_generation: true,
+      browser_keystore: false,
+    },
   };
-  const superKeyRes = await generateBrowserKey({job: superJob, passphrase: 'super-pass-123', algorithm: 'P-384'});
-  assert.equal(superKeyRes.card.transport, 'browser');
-  assert.equal(superKeyRes.card.browser_keystore, true);
-  assert.equal(superKeyRes.card.on_card_generation, false);
+  const superCsr = await makeCsr(superJob, targetKeyInfo, signEcdsa(targetKeys.privateKey));
+  const verifiedGen = await verifyGenerateBridgeResult(
+    {issuance_id: superJob.issuance_id, csr_pem: superCsr.pem, card: superJob.card},
+    superJob,
+  );
+  assert.equal(verifiedGen.card.on_card_generation, true);
+  assert.equal(verifiedGen.card.browser_keystore, false);
 
-  const superCsr = new CertificationRequest({schema: asn1.fromBER(unpem('CERTIFICATE REQUEST', superKeyRes.csr_pem)).result});
+  await assert.rejects(
+    verifyGenerateBridgeResult(
+      {issuance_id: superJob.issuance_id, csr_pem: superCsr.pem, card: {...superJob.card, browser_keystore: true}},
+      superJob,
+    ),
+    /非硬件生成/,
+  );
+
   const superReady = {
     ...superJob,
     state: 'key_ready',
-    card: superKeyRes.card,
-    csr_pem: superKeyRes.csr_pem,
-    public_key_sha256: hex(await sha(superCsr.subjectPublicKeyInfo.toSchema().toBER(false))),
-    write_nonce: 'super-write-nonce',
+    csr_pem: superCsr.pem,
+    public_key_sha256: hex(await sha(targetKeyInfo.der)),
   };
-  const signedSuper = await signWithBrowserCa({job: superReady, p12Bytes: subCaP12, passphrase: 'sub-ca-pass-123'});
-  assert.equal(signedSuper.chain_pem.length, 3);
+  const subWrapped = certificateFromPem(subCa.pemText);
+  const rootWrapped = certificateFromPem(rootCa.pemText);
+  const superLeaf = await makeCertificate(superReady, subWrapped, [subWrapped, rootWrapped], signEcdsa(subCa.privateKey));
+  const superLeafPem = pem('CERTIFICATE', superLeaf.der);
+  const superChainPem = [superLeafPem, subCa.pemText, rootCa.pemText];
+  const verifiedSign = await verifySignBridgeResult({chain_pem: superChainPem, issuer_slot: '9a'}, superReady);
+  assert.equal(verifiedSign.chain_pem.length, 3);
 
-  const superCert = certificateFromPem(signedSuper.chain_pem[0]).parsed;
-  const bcExt = superCert.extensions.find(e => e.extnID === '2.5.29.19');
-  const bcParsed = new BasicConstraints({schema: asn1.fromBER(bcExt.extnValue.valueBlock.valueHex).result});
-  assert.equal(bcParsed.cA, true);
-  assert.equal(bcParsed.pathLenConstraint, 0);
+  const superBc = new BasicConstraints({
+    schema: asn1.fromBER(superLeaf.parsed.extensions.find(e => e.extnID === '2.5.29.19').extnValue.valueBlock.valueHex).result,
+  });
+  assert.equal(superBc.cA, true);
+  assert.equal(superBc.pathLenConstraint, 0);
 
-  const installedSuper = await installBrowserCert({job: signedSuper, passphrase: 'super-pass-123', saveToCaVault: true});
-  assert.equal(installedSuper.isCaCert, true);
-  assert.equal(installedSuper.receipt.readback_verified, true);
-  await assert.rejects(importPkcs12(installedSuper.p12Bytes, 'wrong-passphrase'), /口令错误/);
-  const importedSuper = await importPkcs12(installedSuper.p12Bytes, 'super-pass-123');
-  assert.ok((await listCaEntries()).some(entry => entry.fingerprint === importedSuper.fingerprint));
+  // Delegated CA (pathLen=0) cannot sign another delegated CA (only <37d final cert)
+  const nestedCaJob = {...superReady, issuance_id: randomUUID(), authorities: [superLeafPem, subCa.pemText]};
+  const nestedCaCsr = await makeCsr(nestedCaJob, targetKeyInfo, signEcdsa(targetKeys.privateKey));
+  await assert.rejects(
+    makeCertificate(
+      {...nestedCaJob, csr_pem: nestedCaCsr.pem, public_key_sha256: hex(await sha(targetKeyInfo.der))},
+      superLeaf,
+      [superLeaf, subWrapped, rootWrapped],
+      signEcdsa(targetKeys.privateKey),
+    ),
+    /37 天|不能签发 CA/,
+  );
 
-  const tempJob = {
+  // Temporary cert > 36 days rejected
+  const tempKey = await globalThis.crypto.subtle.generateKey({name: 'ECDSA', namedCurve: 'P-384'}, true, ['sign', 'verify']);
+  const tempKeyInfo = await publicKeyInfo(new Uint8Array(await globalThis.crypto.subtle.exportKey('spki', tempKey.publicKey)));
+  const overTempJob = {
     ...superJob,
     issuance_id: randomUUID(),
-    nonce: 'browser-temp-nonce',
-    user_id: 102,
-    real_name: '临时读者测试',
+    nonce: 'hw-temp-nonce',
+    write_nonce: 'hw-temp-write',
     roles: ['global_reader'],
     temporary: true,
-    validity_days: 7,
+    validity_days: 37,
     delegated_ca: false,
-    authorities: [signedSuper.chain_pem[0], subPem],
+    authorities: [superLeafPem, subCa.pemText],
   };
-  const tempKeyRes = await generateBrowserKey({job: tempJob, passphrase: 'temp-pass-456', algorithm: 'P-384'});
-  const tempCsr = new CertificationRequest({schema: asn1.fromBER(unpem('CERTIFICATE REQUEST', tempKeyRes.csr_pem)).result});
-  const tempReady = {
-    ...tempJob,
-    state: 'key_ready',
-    card: tempKeyRes.card,
-    csr_pem: tempKeyRes.csr_pem,
-    public_key_sha256: hex(await sha(tempCsr.subjectPublicKeyInfo.toSchema().toBER(false))),
-    write_nonce: 'temp-write-nonce',
-  };
-  const signedTemp = await signWithBrowserCa({job: tempReady, fingerprint: importedSuper.fingerprint, passphrase: 'super-pass-123'});
-  assert.equal(signedTemp.chain_pem.length, 4);
-
-  const tempCert = certificateFromPem(signedTemp.chain_pem[0]).parsed;
-  const tempBcExt = tempCert.extensions.find(e => e.extnID === '2.5.29.19');
-  const tempBcParsed = new BasicConstraints({schema: asn1.fromBER(tempBcExt.extnValue.valueBlock.valueHex).result});
-  assert.equal(Boolean(tempBcParsed.cA), false);
-  const lifeMs = tempCert.notAfter.value.getTime() - tempCert.notBefore.value.getTime();
-  assert.equal(Math.round(lifeMs / 86400000), 7);
-
-  const installedTemp = await installBrowserCert({job: signedTemp, passphrase: 'temp-pass-456', saveToCaVault: true});
-  assert.equal(installedTemp.isCaCert, false);
-  assert.equal(installedTemp.receipt.readback_verified, true);
-
-  // Tampering validity_days after CSR signing is rejected at CSR binding check
+  const overTempCsr = await makeCsr(overTempJob, tempKeyInfo, signEcdsa(tempKey.privateKey));
   await assert.rejects(
-    signWithBrowserCa({job: {...tempReady, validity_days: 37}, fingerprint: importedSuper.fingerprint, passphrase: 'super-pass-123'}),
-    /绑定|不匹配/,
+    makeCertificate(
+      {...overTempJob, state: 'key_ready', csr_pem: overTempCsr.pem, public_key_sha256: hex(await sha(tempKeyInfo.der))},
+      superLeaf,
+      [superLeaf, subWrapped, rootWrapped],
+      signEcdsa(targetKeys.privateKey),
+    ),
+    /1 至 36 天/,
   );
 
-  // Valid CSR requesting >= 37 days is still rejected at CA issuance time
-  const overDaysJob = {...tempJob, issuance_id: randomUUID(), validity_days: 37};
-  const overDaysKey = await generateBrowserKey({job: overDaysJob, passphrase: 'temp-pass-456', algorithm: 'P-384'});
-  const overDaysCsr = new CertificationRequest({schema: asn1.fromBER(unpem('CERTIFICATE REQUEST', overDaysKey.csr_pem)).result});
-  const overDaysReady = {
-    ...overDaysJob,
+  const validTempJob = {...overTempJob, validity_days: 7};
+  const validTempCsr = await makeCsr(validTempJob, tempKeyInfo, signEcdsa(tempKey.privateKey));
+  const validTempReady = {
+    ...validTempJob,
     state: 'key_ready',
-    card: overDaysKey.card,
-    csr_pem: overDaysKey.csr_pem,
-    public_key_sha256: hex(await sha(overDaysCsr.subjectPublicKeyInfo.toSchema().toBER(false))),
-    write_nonce: 'over-days-nonce',
+    csr_pem: validTempCsr.pem,
+    public_key_sha256: hex(await sha(tempKeyInfo.der)),
   };
-  await assert.rejects(
-    signWithBrowserCa({job: overDaysReady, fingerprint: importedSuper.fingerprint, passphrase: 'super-pass-123'}),
-    /1 至 36 天|37/,
+  const tempLeaf = await makeCertificate(
+    validTempReady,
+    superLeaf,
+    [superLeaf, subWrapped, rootWrapped],
+    signEcdsa(targetKeys.privateKey),
   );
+  const tempLeafPem = pem('CERTIFICATE', tempLeaf.der);
+  const verifiedTempSign = await verifySignBridgeResult(
+    {chain_pem: [tempLeafPem, superLeafPem, subCa.pemText, rootCa.pemText]},
+    validTempReady,
+  );
+  assert.equal(verifiedTempSign.chain_pem.length, 4);
+  const receipt = validateInstallBridgeResult(
+    {
+      issuance_id: validTempReady.issuance_id,
+      chain_pem: verifiedTempSign.chain_pem,
+      proof: Buffer.from('0123456789abcdef0123456789abcdef').toString('base64'),
+      readback_verified: true,
+      onsite_confirmed: true,
+      card_slot: '9a',
+      chain_slots: ['9a', '82'],
+      injected_extra: 'ignored',
+    },
+    verifiedTempSign,
+  );
+  assert.equal('injected_extra' in receipt, false);
+  await validateInstallation({...verifiedTempSign, chain_pem: verifiedTempSign.chain_pem});
+});
 
-  // Clean import into vault explicit check
-  const directSaved = await importCaPkcs12ToVault({p12Bytes: subCaP12, passphrase: 'sub-ca-pass-123', label: 'SubCA Test'});
-  assert.equal(directSaved.algorithm, 'P-384');
+test('XSS, CSS/URI sanitization, redirect, opener origin, and localhost bridge validators reject malicious payloads', () => {
+  assert.equal(isSafeAttrUri('https://shouguatian.com/p/1'), true);
+  assert.equal(isSafeAttrUri('/article/1/'), true);
+  assert.equal(isSafeAttrUri('javascript:alert(1)'), false);
+  assert.equal(isSafeAttrUri('data:text/html,<script>alert(1)</script>'), false);
+  assert.equal(isSafeAttrUri('//evil.example/phish'), false);
+  assert.equal(isSafeAttrUri('#arrow', true), true);
+  assert.equal(isSafeAttrUri('https://evil.example/x.svg#a', true), false);
+
+  assert.equal(sanitizeCssText('height:1.0em;vertical-align:-0.25em;position:relative;color:#000'), 'height:1.0em;vertical-align:-0.25em;position:relative;color:#000');
+  assert.equal(sanitizeCssText('fill:url(#arrowhead);', true), 'fill:url(#arrowhead);');
+  assert.equal(sanitizeCssText('background:url(https://evil.example/leak)'), null);
+  assert.equal(sanitizeCssText('background:u\\72l(data:text/html,1)'), null);
+  assert.equal(sanitizeCssText('position:fixed;inset:0'), null);
+  assert.equal(sanitizeCssText('@import url(https://evil.example);', true), null);
+  assert.equal(sanitizeCssText('</style><img src=x onerror=alert(1)>', true), null);
+
+  assert.equal(sanitizeSafeNextPath('/admin/post/', 'https://shou.example'), '/admin/post/');
+  assert.equal(sanitizeSafeNextPath('//evil.example', 'https://shou.example'), '/');
+  assert.equal(sanitizeSafeNextPath('/\\evil.example', 'https://shou.example'), '/');
+  assert.equal(sanitizeSafeNextPath('javascript:alert(1)', 'https://shou.example'), '/');
+
+  assert.equal(getTrustedConsoleOrigin('https://privileged.shouguatian.com/'), 'https://privileged.shouguatian.com');
+  assert.equal(getTrustedConsoleOrigin('http://evil.example:8080/'), null);
+  assert.equal(validateConsoleHandoffUrl('https://privileged.shouguatian.com/#ticket=abc', 'https://privileged.shouguatian.com/'), 'https://privileged.shouguatian.com/#ticket=abc');
+  assert.throws(() => validateConsoleHandoffUrl('javascript:alert(1)', 'https://privileged.shouguatian.com/'));
+  assert.throws(() => validateConsoleHandoffUrl('https://attacker.example/#ticket=abc', 'https://privileged.shouguatian.com/'));
+  assert.throws(() => validateRelativeRedirectUrl('//evil.example/'));
+  assert.equal(isValidUuid('550e8400-e29b-41d4-a716-446655440000'), true);
+  assert.equal(isValidUuid('550e8400-e29b-41d4-a716-446655440000/../admin'), false);
+
+  assert.equal(validateLoopbackBridgeUrl('http://127.0.0.1:18444'), 'http://127.0.0.1:18444');
+  assert.equal(validateLoopbackBridgeUrl('https://evil.example:18444'), null);
+  assert.equal(validateLoopbackBridgeUrl('http://127.0.0.1:80'), null);
+  assert.throws(() => validateSlotDecisionPayload({next_slot: 'bad', decision_nonce: 'x'}));
+  assert.equal(validatePcscReadersPayload({cards: [{id: 'r1', name: 'Reader', state: 'ready', transport: 'usb'}]}).length, 1);
+  assert.throws(() => validateFidoAssertionResult({id: 'a', rawId: 'YQ==', type: 'wrong', response: {}}, 'get'));
+});
+
+test('PivCard.probe keeps PIV ready when FIDO2 GetInfo returns 0x6e00 or 0x6985 over WebUSB', async () => {
+  for (const fidoStatus of [[0x6e, 0x00], [0x69, 0x85]]) {
+    const card = new PivCard({
+      transmit: async apdu => {
+        const ins = apdu[1];
+        if (ins === 0xa4 && apdu[4] === 8) return new Uint8Array([0x90, 0x00]); // FIDO_AID
+        if (ins === 0x10) return new Uint8Array(fidoStatus); // CTAP GetInfo rejected
+        if (ins === 0xa4 && apdu[4] === 11) return new Uint8Array([0x90, 0x00]); // PIV_AID
+        if (ins === 0xcb) return new Uint8Array([0x6a, 0x82]); // empty 9a cert
+        return new Uint8Array([0x6d, 0x00]);
+      },
+    });
+    const probed = await card.probe();
+    assert.deepEqual(probed, {piv: true, fido2: false, state: 'ready', default_slot_occupied: false});
+  }
+});
+
+test('PivCard.certificate accepts PIV object without optional 0x71 compression tag', async () => {
+  const sample = await makeTestPkiCa('NoCompTag', 0);
+  const der = new Uint8Array(sample.cert.toSchema().toBER(false));
+  const tlvNo71 = tlv(0x53, tlv(0x70, der));
+  const card = new PivCard({
+    transmit: async apdu => {
+      if (apdu[1] === 0xcb) return concat(tlvNo71, new Uint8Array([0x90, 0x00]));
+      return new Uint8Array([0x6d, 0x00]);
+    },
+  });
+  const loaded = await card.certificate('9a');
+  assert.deepEqual(loaded.der, der);
+});
+
+test('PivCard.probe keeps PIV ready when slot 9a has compressed or nonstandard certificate object', async () => {
+  const sample = await makeTestPkiCa('CompressedCert', 0);
+  const der = new Uint8Array(sample.cert.toSchema().toBER(false));
+  const tlvCompressed = tlv(0x53, concat(tlv(0x70, der), tlv(0x71, new Uint8Array([0x01]))));
+  const card = new PivCard({
+    transmit: async apdu => {
+      const ins = apdu[1];
+      if (ins === 0xa4 && apdu[4] === 8) return new Uint8Array([0x6a, 0x82]);
+      if (ins === 0xa4 && apdu[4] === 11) return new Uint8Array([0x90, 0x00]);
+      if (ins === 0xcb) return concat(tlvCompressed, new Uint8Array([0x90, 0x00]));
+      return new Uint8Array([0x6d, 0x00]);
+    },
+  });
+  const probed = await card.probe();
+  assert.deepEqual(probed, {piv: true, fido2: false, state: 'ready', default_slot_occupied: true});
 });

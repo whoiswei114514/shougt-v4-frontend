@@ -106,7 +106,7 @@ const descriptionData = (record: any) => {
   <a-space wrap style="margin-bottom: 1em">
     <a-input
       v-model="filter.search"
-      placeholder="请输入用户"
+      placeholder="请输入用户 ID、用户名或姓名"
       class="mb-1"
       style="max-width: 300px; margin: 0"
       @keydown.enter="

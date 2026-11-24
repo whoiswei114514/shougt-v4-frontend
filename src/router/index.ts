@@ -6,7 +6,27 @@ import { Message } from '@arco-design/web-vue';
 
 const routes = [
   { path: '/security/', name: 'security', redirect: { name: 'settings', query: { tab: 'security' } } },
-  { path: '/security/approve', name: 'security-approve', component: () => import('../views/security/Approve.vue'), meta: { title: '管理操作确认', requireLogin: true } },
+  { path: '/security/approve', name: 'security-approve', component: () => import('../views/security/Approve.vue'), meta: { title: '管理操作确认', requireLogin: true, blockImpersonation: true } },
+  {
+    path: '/security/issuance',
+    name: 'security-issuance',
+    meta: { requireLogin: true, blockImpersonation: true },
+    redirect: () => {
+      const store = useStore();
+      if (store.security?.session_scope === 'impersonation') {
+        return { name: 'index' };
+      }
+      if (
+        store.security?.needs_certificate_issuance ||
+        (store.security?.pending_issuance_count || 0) > 0 ||
+        (store.security?.pending_sign_requests_count || 0) > 0 ||
+        (store.security?.signed_issuance_ready_count || 0) > 0
+      ) {
+        setTimeout(() => sharedFunctions.openIssuanceModal(), 0);
+      }
+      return { name: 'index' };
+    },
+  },
   { path: '/security/impersonate', name: 'security-impersonate', component: () => import('../views/security/Impersonate.vue'), meta: { title: '临时代登录', requireLogin: true } },
   {
     path: '/2026/',
@@ -92,6 +112,7 @@ const routes = [
     meta: {
       title: '绑定邮箱',
       requireLogin: true,
+      blockImpersonation: true,
     },
   },
   {
@@ -99,14 +120,15 @@ const routes = [
     name: 'admin',
     component: () => import('../views/admin.vue'),
     children: [
-      { path: 'file/', name: 'admin-file', component: () => import('../views/admin/file_list.vue'), meta: { title: '文件仓管', permissions: ['admin_file'] } },
-      { path: 'video/', name: 'admin-video', component: () => import('../views/admin/video_list.vue'), meta: { title: '视频管理', permissions: ['admin_image'] } },
+      { path: 'file/', name: 'admin-file', component: () => import('../views/admin/file_list.vue'), meta: { title: '文件仓管', permissions: ['base_admin', 'admin_file'] } },
+      { path: 'video/', name: 'admin-video', component: () => import('../views/admin/video_list.vue'), meta: { title: '视频管理', permissions: ['base_admin', 'admin_image'] } },
       {
         path: 'report/',
         name: 'admin-report',
         component: () => import('../views/admin/report_list.vue'),
         meta: {
           title: '举报',
+          permissions: ['base_admin', 'admin_report'],
         },
       },
       {
@@ -115,6 +137,7 @@ const routes = [
         component: () => import('../views/admin/user_list.vue'),
         meta: {
           title: '用户列表',
+          permissions: ['base_admin', 'admin_user'],
         },
       },
       {
@@ -123,6 +146,7 @@ const routes = [
         component: () => import('../views/admin/user_detail.vue'),
         meta: {
           title: '用户管理',
+          permissions: ['base_admin', 'admin_user'],
         },
       },
       {
@@ -131,6 +155,7 @@ const routes = [
         component: () => import('../views/admin/role_list.vue'),
         meta: {
           title: '角色列表',
+          permissions: ['base_admin', 'admin_role'],
         },
       },
       {
@@ -139,6 +164,7 @@ const routes = [
         component: () => import('../views/admin/role_detail.vue'),
         meta: {
           title: '角色管理',
+          permissions: ['base_admin', 'admin_role'],
         },
       },
       {
@@ -147,6 +173,7 @@ const routes = [
         component: () => import('../views/admin/post_list.vue'),
         meta: {
           title: '帖子列表',
+          permissions: ['base_admin', 'admin_forum'],
         },
       },
       {
@@ -164,6 +191,7 @@ const routes = [
         component: () => import('../views/admin/comment_list.vue'),
         meta: {
           title: '评论列表',
+          permissions: ['base_admin', 'admin_forum'],
         },
       },
       {
@@ -180,7 +208,8 @@ const routes = [
         name: 'admin-image',
         component: () => import('../views/admin/image_list.vue'),
         meta: {
-          title: '图片列表', permissions: ['admin_image'],
+          title: '图片列表',
+          permissions: ['base_admin', 'admin_image'],
         },
       },
     ],
@@ -220,6 +249,8 @@ const routes = [
     component: () => import('../views/zero.vue'),
     meta: {
       title: '文本暗水印',
+      requireLogin: true,
+      permissions: ['base_admin'],
     },
   },
   {
@@ -243,15 +274,22 @@ NProgress.configure({
 
 router.beforeEach((to, _from, next) => {
   NProgress.start();
+  sharedFunctions.checkExpired();
   const store = useStore();
   if (to.meta.requireLogin && !store.loggedIn) {
-    next({ name: 'login', query: { next: to.fullPath } });
+    const safeNext = to.fullPath.split('#')[0] || '/';
+    next({ name: 'login', query: to.name === 'login' ? undefined : { next: safeNext } });
+    return;
+  }
+  if (to.meta.blockImpersonation && store.security?.session_scope === 'impersonation') {
+    Message.error('临时代登录会话不支持此安全操作');
+    next({ name: 'index' });
     return;
   }
   if (Array.isArray(to.meta.permissions)) {
+    const perms = store.permission as Record<string, unknown> | null | undefined;
     for (const permission of to.meta.permissions) {
-      // @ts-ignore
-      if (!store.permission[permission]) {
+      if (!perms || !perms[permission]) {
         Message.error('您没有权限访问此页面');
         next({ name: 'security' });
         return;

@@ -163,7 +163,7 @@ function extension(certificate, oid) {
 function extensionValue(certificate, oid) {
   return schema(extension(certificate, oid).extnValue.valueBlock.valueHexView);
 }
-function caConstraints(certificate) {
+export function caConstraints(certificate) {
   return new BasicConstraints({schema: extensionValue(certificate, constraintsOID)});
 }
 function usage(certificate, mask) {
@@ -244,14 +244,26 @@ export async function selectCa(card, job, requested = 'auto') {
   const {key} = await validatedCsr(job);
   const trusted = new Set(await Promise.all(job.authorities.map(async value => fingerprint(certificateFromPem(value)))));
   const slots = requested === 'auto' ? ['9c', '9a', ...CERT_SLOTS.filter(slot => !['9a', '9c'].includes(slot))] : [requested];
+  let sawDelegatedOnStandard = false;
   for (const slot of slots) {
     if (!CERT_SLOTS.includes(slot)) throw new Error('无效的 CA 槽位');
     const ca = await card.certificate(slot);
-    if (!ca || !trusted.has(await fingerprint(ca))) continue;
+    if (!ca) continue;
+    const fp = await fingerprint(ca);
+    if (!trusted.has(fp)) {
+      try {
+        const bc = caConstraints(ca);
+        if (!job.temporary && bc.cA && bc.pathLenConstraint === 0) sawDelegatedOnStandard = true;
+      } catch (_) {}
+      continue;
+    }
     try {
       if (!issuerMatches(key, await certificateKey(ca)) || !caConstraints(ca).cA || !usage(ca, 0x04)) continue;
       return {slot, ca, chain: await buildChain(ca, job)};
     } catch (_) { /* Try another trusted CA without asking for any PIN. */ }
+  }
+  if (sawDelegatedOnStandard) {
+    throw new Error('检测到卡内为超管卡 / 超级特权卡（有效期仅限 37 天内），请切换签发类型为「超管卡 / 超级特权卡临时签发（1–36 天）」');
   }
   throw new Error('CA 卡内没有受信任且与目标算法对应的签发证书；尚未请求 CA PIN');
 }

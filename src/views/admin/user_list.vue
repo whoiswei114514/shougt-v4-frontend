@@ -111,7 +111,7 @@ async function createUser({errors}: {errors?: unknown}) {
   <a-input-search
     search-button
     v-model="search"
-    placeholder="请输入用户名或姓名"
+    placeholder="请输入用户 ID、用户名或姓名"
     class="mb-1"
     style="max-width: 300px"
     @search="

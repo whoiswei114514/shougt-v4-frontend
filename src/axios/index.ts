@@ -47,7 +47,11 @@ Axios.interceptors.response.use(response => {
       void import('../router').then(({ default: router }) => {
         const current = router.currentRoute.value;
         if (current.meta.requireLogin) {
-          void router.replace({ name: 'login', query: { next: current.fullPath } });
+          const safeNext = current.fullPath.split('#')[0] || '/';
+          void router.replace({
+            name: 'login',
+            query: current.name === 'login' ? undefined : { next: safeNext },
+          });
         }
       });
     }
