@@ -346,14 +346,12 @@ const disableEdit = computed(() => {
       </a-form-item>
       <a-form-item field="show_user_info" label="展示实名信息">
         <a-switch v-model="editRoleForm.show_user_info" aria-label="展示实名信息" :disabled="isRoleAdminOnly" />
-        <template #extra v-if="roleData.is_primary">管理认证始终显示在主角色，实名信息可单独隐藏。</template>
       </a-form-item>
       <a-form-item field="show_like" label="展示点赞内容">
         <a-switch v-model="editRoleForm.show_like" :disabled="isRoleAdminOnly" />
       </a-form-item>
       <a-form-item field="is_shared" label="共享角色">
         <a-switch v-model="editRoleForm.is_shared" :disabled="roleData.is_primary || isRoleAdminOnly" />
-        <template #extra v-if="roleData.is_primary">主角色用于个人身份，使用其他角色与同学共享。</template>
       </a-form-item>
       <a-form-item
         field="members_id"

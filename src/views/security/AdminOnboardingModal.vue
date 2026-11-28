@@ -233,14 +233,7 @@ onMounted(() => run(async () => {
         <a-button type="text" size="small" aria-label="关闭引导窗口" @click="emit('close')">关闭</a-button>
       </div>
       <p v-if="isManagement && badgeLabels.length" class="security-muted" style="margin-bottom: 6px">
-        当前管理身份：<strong>{{ badgeLabels.join('、') }}</strong>（已完成身份任命，待完成下方安全配置后启用权限）
-      </p>
-      <p class="security-muted">
-        {{
-          isManagement
-            ? '在完成外置 FIDO2 安全密钥绑定与实名进阶认证前，账号仅保留管理身份标识，暂不具备实际管理权限。'
-            : '管理员认证入口已开放。请先完成外置安全密钥绑定与教育邮箱实名认证挑战。'
-        }}
+        当前管理身份：<strong>{{ badgeLabels.join('、') }}</strong>
       </p>
 
       <div class="security-statuses">
@@ -255,15 +248,6 @@ onMounted(() => run(async () => {
           <span class="admin-step-number">01</span>
           <div class="onboarding-step-body">
             <strong>绑定外置 FIDO2 安全密钥</strong>
-            <p>
-              {{
-                adminKeysReady
-                  ? '安全密钥配置已达标，可继续完成实名进阶认证或最终确认。'
-                  : needsSecondOrdinaryKey
-                    ? '已绑定第 1 把普通安全密钥，请再绑定第 2 把不同的安全密钥（或改为绑定 FIPS 140-2 L2 / CC EAL4+ 以上高认证密钥）。'
-                    : '管理员需绑定 2 把不同的普通外置安全密钥，或 1 把 FIPS 140-2 L2 / CC EAL4+ 以上高认证安全密钥（支持 USB 与 NFC）。'
-              }}
-            </p>
             <div v-if="externalKeys.length" class="onboarding-bound-keys">
               <span v-for="key in externalKeys" :key="key.id" class="onboarding-key-pill">
                 {{ key.name }} · {{ key.assurance?.label || '标准验证' }}
@@ -316,10 +300,6 @@ onMounted(() => run(async () => {
               <a-tag role="status">{{ advancedLabel }}</a-tag>
             </div>
             <template v-if="!identityVerified">
-              <p>
-                使用已绑定的外置 FIDO2 安全密钥，对随机挑战与签发时间进行签名。请在 24 小时内，使用已验证的教育邮箱，将完整认证邮件发送至
-                <strong>renzheng@shouguatian.com</strong>，经超级管理员核对后写入实名。
-              </p>
               <template v-if="status && !status.email_verified">
                 <a-alert type="warning" class="security-notice">请先绑定并验证教育邮箱，再生成和签署进阶认证挑战。</a-alert>
                 <a-button @click="goToEmail">前往验证教育邮箱</a-button>
@@ -362,13 +342,6 @@ onMounted(() => run(async () => {
           <span class="admin-step-number">03</span>
           <div class="onboarding-step-body">
             <strong>验证密钥，启用管理权限</strong>
-            <p>
-              {{
-                status?.admin_setup_ready
-                  ? '安全密钥、教育邮箱与实名进阶认证已全部就绪。点击下方按钮使用本人外置安全密钥确认，即可正式启用管理权限。'
-                  : '完成前两步前，账号仅显示管理身份标识，所有管理后台、审核与特权操作接口保持锁定（普通社区浏览不受影响）。'
-              }}
-            </p>
           </div>
         </li>
       </ol>

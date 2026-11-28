@@ -61,7 +61,6 @@ onMounted(async()=>{
     <a-card class="auth-card-wide">
       <a-typography-title :heading="2">确认这一次管理操作</a-typography-title>
       <a-divider class="divider-30" />
-      <p class="auth-subtitle">请核对操作内容，并使用本账号已绑定的外置安全密钥确认。</p>
 
       <template v-if="operation && !approved">
         <a-typography-title :heading="5" style="margin-bottom: 16px">

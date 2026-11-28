@@ -114,9 +114,6 @@ async function finishFactor() {
     <a-card v-else class="auth-panel">
       <a-typography-title :heading="2">{{ factor.enrollment ? '配置管理员安全性' : '再确认一次，是你本人' }}</a-typography-title>
       <a-divider class="divider-30" />
-      <p class="auth-subtitle">
-        {{ factor.enrollment ? '先通过教育邮箱确认本人，再绑定安全密钥与完成进阶认证。' : '此账号需要另一项独立验证。' }}
-      </p>
       <a-form :model="{}" layout="vertical" @submit="finishFactor">
         <a-form-item label="验证方式">
           <a-select v-model="factorMethod">
@@ -135,7 +132,6 @@ async function finishFactor() {
               <a-option value="smartcard">接触式智能卡（PC/SC）</a-option>
             </a-select>
           </a-form-item>
-          <p class="auth-subtitle">请连接或轻触另一把已绑定的安全密钥。重复验证第一把密钥无法完成登录。</p>
         </template>
         <template v-else>
           <a-form-item v-if="factorMethod === 'email' && factor.needs_email" label="教育邮箱">

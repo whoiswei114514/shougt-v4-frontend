@@ -1147,7 +1147,6 @@ onBeforeUnmount(() => {
         <a-typography-title :heading="2">特权管理证书签发</a-typography-title>
         <a-divider class="divider-30" />
       </template>
-      <p class="security-muted">超级管理员、特权管理员与全局读者访问独立特权管理站前，需持有未撤销且在有效期内的硬件客户端证书。</p>
 
       <a-alert type="info" class="security-notice">
         <strong>安全要求：</strong>禁止生成或导出 <code>.p12</code> 软证书。所有特权管理证书私钥仅允许在<strong>实体智能卡（PIV）</strong>或<strong>本机 Windows TPM 2.0 安全芯片</strong>内生成，私钥不可导出。
@@ -1256,9 +1255,7 @@ onBeforeUnmount(() => {
           <section id="security-self-issuance">
             <template v-if="selfIssuanceInfo?.available">
               <a-typography-title :heading="4">现场自助签发 / 离线申请（CA 卡 / 超管卡 / 超级特权卡）</a-typography-title>
-              <p class="security-muted">
-                当前账号角色：<strong>{{ roleListText(selfIssuanceInfo.roles) }}</strong>。现场持有 <strong>CA 卡 / 超管卡 / 超级特权卡</strong> 时可直接一次完成签发；若签发人不在现场，也可先在您的硬件内生成私钥并上传公钥，待有权限的管理员登录后为您签署，再导入证书链激活。
-              </p>
+              <p class="security-muted">当前账号角色：<strong>{{ roleListText(selfIssuanceInfo.roles) }}</strong></p>
 
               <a-space wrap style="margin-bottom: 14px">
                 <a-tag color="arcoblue">CA 卡（站点签发 CA）：{{ selfIssuanceInfo.site_ca_count }} 张</a-tag>

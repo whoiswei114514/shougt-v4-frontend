@@ -188,7 +188,6 @@ onMounted(()=>run(refresh));
 
     <section>
       <a-typography-title :heading="5">账号安全中心</a-typography-title>
-      <p class="security-muted">管理登录凭据、校园身份与认证展示。</p>
       <div class="security-statuses">
         <span class="security-status" :class="{ complete: status?.email_verified }">教育邮箱 · {{ status?.email_verified ? '已验证' : '待验证' }}</span>
         <SecurityKeyStatus :fido-authenticated="status?.fido_authenticated" :key-authenticated="status?.key_authenticated" :assurance="displayedKeyAssurance" :preview="previewKeyLevel" />
@@ -204,7 +203,6 @@ onMounted(()=>run(refresh));
 
     <section id="security-key-setup">
       <a-typography-title :heading="5">安全密钥与通行密钥</a-typography-title>
-      <p class="security-muted">每个账号可绑定 1–3 把安全密钥，支持 USB 与 NFC。</p>
       <div v-for="key in status?.keys" :key="key.id" class="key-row">
         <div class="key-info">
           <span class="key-name">{{ key.name }}</span>
@@ -258,7 +256,6 @@ onMounted(()=>run(refresh));
 
     <section>
       <a-typography-title :heading="5">二次验证器</a-typography-title>
-      <p class="security-muted">使用验证器生成六位动态验证码，为账号增加一项独立验证。</p>
       <a-button v-if="!status?.totp_enabled && !totpSetup" :loading="busy" @click="startTotp">设置二次验证器</a-button>
       <div v-if="totpSetup" class="totp-setup">
         <VueQr :text="totpSetup.uri" :size="172" :margin="8" />
@@ -280,7 +277,6 @@ onMounted(()=>run(refresh));
       <a-divider />
       <section>
         <a-typography-title :heading="5">认证展示</a-typography-title>
-        <p class="security-muted">管理认证始终显示在注册主角色。你可以选择是否公开该角色的姓名、学号等实名信息。</p>
         <a-space wrap :size="18">
           <label class="privacy-toggle">
             <a-switch :model-value="!status.show_real_name" :disabled="busy" aria-label="隐藏公开的实名信息" @change="value => showRealName(!Boolean(value))" />
