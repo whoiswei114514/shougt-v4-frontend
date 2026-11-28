@@ -81,7 +81,6 @@ async function finishFactor() {
     <a-card v-if="!factor" class="auth-panel">
       <a-typography-title :heading="2">登录</a-typography-title>
       <a-divider class="divider-30" />
-      <p class="auth-subtitle">选择安全密钥、通行密钥或密码登录。</p>
       <a-radio-group v-model="mode" type="button" class="auth-tabs">
         <a-radio value="key">安全密钥 / 通行密钥</a-radio>
         <a-radio value="password">密码</a-radio>

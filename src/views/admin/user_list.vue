@@ -144,7 +144,7 @@ async function createUser({errors}: {errors?: unknown}) {
       <a-form-item field="password" label="初始密码" :rules="[{required:true, message:'请输入初始密码'}, {minLength:8, message:'密码至少 8 位'}]"><a-input-password v-model="createForm.password" placeholder="至少 8 位，避免常见密码" autocomplete="new-password" /></a-form-item>
       <a-form-item field="email" label="教育邮箱" :rules="[{required:true, message:'请输入教育邮箱'}]"><a-input v-model="createForm.email" placeholder="新用户的教育邮箱" inputmode="email" :max-length="254" /></a-form-item>
       <a-form-item label="姓名（选填）"><a-input v-model="createForm.real_name" placeholder="姓名" :max-length="40" /></a-form-item>
-      <p class="create-user-note">{{educationGroup}}。学号按“院校缩写-邮箱前缀”生成。新用户可登录后验证邮箱；管理岗位的认证姓名取教育邮箱来信中的发件人称呼。</p>
+      <p class="create-user-note">{{educationGroup}}；学号按「院校缩写-邮箱前缀」自动生成。</p>
       <a-space><a-button type="primary" html-type="submit" :loading="creating">确认创建</a-button><a-button :disabled="creating" @click="createVisible = false">取消</a-button></a-space>
     </a-form>
   </a-modal>

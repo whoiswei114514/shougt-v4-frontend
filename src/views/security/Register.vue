@@ -11,7 +11,7 @@ const form=reactive({username:'',email:'',password:'',confirmation:'',code:'',ch
 let timer:ReturnType<typeof setInterval>;
 onBeforeUnmount(()=>clearInterval(timer));
 Axios.get('/security/config/').then(({data})=>suffixes.value=data.education_suffixes).catch(()=>{});
-const group=computed(()=>{const domain=form.email.toLowerCase().trim().split('@')[1];if(domain==='st.shou.edu.cn')return '海大学生';if(domain==='shou.edu.cn'||domain?.endsWith('.shou.edu.cn'))return '海大教师';if(suffixes.value.some(s=>domain?.endsWith('.'+s)))return '外校人士';return '通过教育邮箱确认校园身份';});
+const group=computed(()=>{const domain=form.email.toLowerCase().trim().split('@')[1];if(domain==='st.shou.edu.cn')return '海大学生';if(domain==='shou.edu.cn'||domain?.endsWith('.shou.edu.cn'))return '海大教师';if(suffixes.value.some(s=>domain?.endsWith('.'+s)))return '外校人士';return '';});
 async function sendCode(){sending.value=true;try{const {data}=await Axios.post('/security/register-code/',{email:form.email});form.challenge_id=data.challenge_id;cooldown.value=60;clearInterval(timer);timer=setInterval(()=>{cooldown.value--;if(!cooldown.value)clearInterval(timer);},1000);Message.success('验证码已发送，10 分钟内有效');}catch(error){Message.error(securityError(error));}finally{sending.value=false;}}
 async function register(){if(form.password!==form.confirmation)return Message.warning('两次密码不一致');if(!form.challenge_id)return Message.warning('请先获取邮箱验证码');busy.value=true;try{const {data}=await Axios.post('/security/register/',{username:form.username,email:form.email,password:form.password,code:form.code,challenge_id:form.challenge_id});saveUserInfo(data);Message.success('欢迎来到 shou瓜田');await router.replace('/settings/?tab=security');}catch(error){Message.error(securityError(error));}finally{busy.value=false;}}
 </script>
@@ -20,9 +20,6 @@ async function register(){if(form.password!==form.confirmation)return Message.wa
     <a-card class="auth-panel">
       <a-typography-title :heading="2">注册</a-typography-title>
       <a-divider class="divider-30" />
-      <p class="auth-subtitle">
-        支持 {{ suffixes.join('、') }} 教育邮箱。实名与进阶认证仅在新任管理员首次登录配置时需要。
-      </p>
 
       <a-form :model="form" layout="vertical" @submit="register">
         <a-form-item label="登录账号">
@@ -31,7 +28,7 @@ async function register(){if(form.password!==form.confirmation)return Message.wa
         <a-form-item label="教育邮箱">
           <a-input v-model="form.email" inputmode="email" autocomplete="email" placeholder="name@st.shou.edu.cn" />
         </a-form-item>
-        <a-alert type="info" class="mb-1">{{ group }}</a-alert>
+        <a-alert v-if="group" type="info" class="mb-1">{{ group }}</a-alert>
         <a-form-item label="邮箱验证码">
           <div class="send-code">
             <a-input v-model="form.code" :max-length="6" autocomplete="one-time-code" placeholder="六位验证码" />

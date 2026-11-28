@@ -20,9 +20,9 @@ async function verify(){busy.value=true;try{const {data}=await Axios.post('/user
         <a-step title="输入验证码" />
         <a-step title="完成" />
       </a-steps>
-      <p v-if="step !== 3" class="auth-subtitle">
-        更换邮箱会重新计算校园身份（st.shou.edu.cn 对应海大学生，其他海大邮箱对应教师，其他教育邮箱对应外校人士）；管理员需要重新完成进阶认证。
-      </p>
+      <a-alert v-if="step !== 3 && store.security?.is_management" type="warning" class="mb-1">
+        更换邮箱后需重新完成管理员进阶认证。
+      </a-alert>
 
       <a-form v-if="step === 1" :model="form" layout="vertical" @submit="send">
         <a-form-item label="教育邮箱">

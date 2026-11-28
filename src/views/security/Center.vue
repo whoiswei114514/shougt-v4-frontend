@@ -258,7 +258,7 @@ onMounted(()=>run(refresh));
 
     <section>
       <a-typography-title :heading="5">二次验证器</a-typography-title>
-      <p class="security-muted">使用验证器生成六位动态验证码，为管理账号增加一项独立验证。</p>
+      <p class="security-muted">使用验证器生成六位动态验证码，为账号增加一项独立验证。</p>
       <a-button v-if="!status?.totp_enabled && !totpSetup" :loading="busy" @click="startTotp">设置二次验证器</a-button>
       <div v-if="totpSetup" class="totp-setup">
         <VueQr :text="totpSetup.uri" :size="172" :margin="8" />
