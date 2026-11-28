@@ -35,7 +35,7 @@ async function verify(){busy.value=true;try{const {data}=await Axios.post('/user
       </a-form>
 
       <a-form v-else-if="step === 2" :model="form" layout="vertical" @submit="verify">
-        <p class="auth-subtitle">验证码已发送至 {{ form.email }}，10 分钟内有效。</p>
+        <p class="auth-subtitle">验证码已发送至 {{ form.email }}，30 分钟内有效。</p>
         <a-form-item label="六位验证码">
           <a-input v-model="form.code" :max-length="6" autocomplete="one-time-code" placeholder="000000" />
         </a-form-item>

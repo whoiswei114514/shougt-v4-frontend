@@ -60,7 +60,7 @@ async function loginPassword() {
 }
 async function sendFactorEmail() {
   busy.value=true;
-  try { const {data}=await Axios.post('/security/factor-email/',{ticket:factor.value.ticket,email:factorEmail.value}); emailChallenge.value=data.challenge_id; countdown.value=60; const timer=setInterval(()=>{countdown.value--;if(!countdown.value) clearInterval(timer);},1000); Message.success('验证码已发送至教育邮箱'); }
+  try { const {data}=await Axios.post('/security/factor-email/',{ticket:factor.value.ticket,email:factorEmail.value}); emailChallenge.value=data.challenge_id; countdown.value=60; const timer=setInterval(()=>{countdown.value--;if(!countdown.value) clearInterval(timer);},1000); Message.success('验证码已发送至教育邮箱，30 分钟内有效'); }
   catch(error) {Message.error(securityError(error));} finally {busy.value=false;}
 }
 async function finishFactor() {
