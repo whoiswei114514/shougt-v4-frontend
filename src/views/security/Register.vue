@@ -51,7 +51,6 @@ async function register(){if(form.password!==form.confirmation)return Message.wa
 
       <div class="auth-footer">
         <span>已有账号？<RouterLink to="/login/"><a-link>立即登录</a-link></RouterLink></span>
-        <span>st.shou.edu.cn 学生 · shou.edu.cn 教师 · 其他教育邮箱外校人士</span>
       </div>
     </a-card>
   </div>
