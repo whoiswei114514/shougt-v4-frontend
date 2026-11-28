@@ -1137,10 +1137,16 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div :class="props.modal ? 'security-settings' : 'security-layout security-settings'" :style="props.modal ? undefined : 'max-width: 860px'">
-    <section :class="props.modal ? undefined : 'security-card'">
-      <span class="security-kicker">PRIVILEGED / CERTIFICATE ISSUANCE</span>
-      <h1 v-if="!props.modal">特权管理证书签发</h1>
+  <div :class="props.modal ? 'security-settings' : 'card-container'">
+    <a-card
+      :bordered="!props.modal"
+      :body-style="props.modal ? { padding: 0 } : undefined"
+      :class="props.modal ? 'security-modal-card' : 'auth-card-xl security-settings'"
+    >
+      <template v-if="!props.modal">
+        <a-typography-title :heading="2">特权管理证书签发</a-typography-title>
+        <a-divider class="divider-30" />
+      </template>
       <p class="security-muted">超级管理员、特权管理员与全局读者访问独立特权管理站前，需持有未撤销且在有效期内的硬件客户端证书。</p>
 
       <a-alert type="info" class="security-notice">
@@ -1567,7 +1573,7 @@ onBeforeUnmount(() => {
         </div>
       </template>
       <a-spin v-else />
-    </section>
+    </a-card>
 
     <!-- WebUSB / 槽位交互弹窗 -->
     <a-modal

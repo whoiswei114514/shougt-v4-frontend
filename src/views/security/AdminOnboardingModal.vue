@@ -229,10 +229,9 @@ onMounted(() => run(async () => {
   <div class="admin-onboarding-modal">
     <section class="admin-welcome" aria-labelledby="admin-welcome-title">
       <div class="admin-welcome-top">
-        <p class="admin-welcome-eyebrow">SECURITY / FIRST LOGIN</p>
+        <h2 id="admin-welcome-title" style="margin: 0">{{ isManagement ? '欢迎加入管理团队' : '管理员实名与安全认证' }}</h2>
         <a-button type="text" size="small" aria-label="关闭引导窗口" @click="emit('close')">关闭</a-button>
       </div>
-      <h2 id="admin-welcome-title">{{ isManagement ? '欢迎加入管理团队' : '管理员实名与安全认证' }}</h2>
       <p v-if="isManagement && badgeLabels.length" class="security-muted" style="margin-bottom: 6px">
         当前管理身份：<strong>{{ badgeLabels.join('、') }}</strong>（已完成身份任命，待完成下方安全配置后启用权限）
       </p>

@@ -56,4 +56,55 @@ onMounted(async()=>{
   }
 });
 </script>
-<template><div class="security-layout" style="max-width:760px"><section class="security-card"><span class="security-kicker">PRIVILEGED ACTION / FIDO2</span><h1>确认这一次管理操作</h1><p class="security-muted">请核对操作内容，并使用本账号已绑定的外置安全密钥确认。</p><template v-if="operation && !approved"><h2>{{labels[operation.action] || operation.action}}</h2><a-descriptions :column="1" bordered><a-descriptions-item v-for="(value,key) in operation.payload" :key="key" :label="fieldLabels[String(key)] || String(key)"><span style="overflow-wrap:anywhere">{{typeof value==='object'?JSON.stringify(value):String(value).slice(0,500)}}</span></a-descriptions-item></a-descriptions><a-select v-if="showPcsc" v-model="connection" :disabled="busy" aria-label="安全密钥连接方式" style="margin-top:24px;margin-bottom:16px"><a-option value="browser">USB / NFC 安全密钥</a-option><a-option value="smartcard">接触式智能卡（PC/SC）</a-option></a-select><a-button type="primary" long :loading="busy" @click="approve">验证安全密钥并授权</a-button></template><a-result v-else-if="approved" status="success" title="操作已授权" subtitle="管理站将完成此次操作，你可以关闭此窗口。"/><a-result v-else-if="loadError" status="error" title="无法载入此操作" :subtitle="loadError"><template #extra><a-button @click="closeWindow">关闭窗口</a-button></template></a-result><a-spin v-else/></section></div></template>
+<template>
+  <div class="card-container">
+    <a-card class="auth-card-wide">
+      <a-typography-title :heading="2">确认这一次管理操作</a-typography-title>
+      <a-divider class="divider-30" />
+      <p class="auth-subtitle">请核对操作内容，并使用本账号已绑定的外置安全密钥确认。</p>
+
+      <template v-if="operation && !approved">
+        <a-typography-title :heading="5" style="margin-bottom: 16px">
+          {{ labels[operation.action] || operation.action }}
+        </a-typography-title>
+        <a-descriptions :column="1" bordered>
+          <a-descriptions-item
+            v-for="(value, key) in operation.payload"
+            :key="key"
+            :label="fieldLabels[String(key)] || String(key)"
+          >
+            <span style="overflow-wrap: anywhere">
+              {{ typeof value === 'object' ? JSON.stringify(value) : String(value).slice(0, 500) }}
+            </span>
+          </a-descriptions-item>
+        </a-descriptions>
+        <a-select
+          v-if="showPcsc"
+          v-model="connection"
+          :disabled="busy"
+          aria-label="安全密钥连接方式"
+          style="margin-top: 20px"
+        >
+          <a-option value="browser">USB / NFC 安全密钥</a-option>
+          <a-option value="smartcard">接触式智能卡（PC/SC）</a-option>
+        </a-select>
+        <a-button type="primary" long style="margin-top: 20px" :loading="busy" @click="approve">
+          验证安全密钥并授权
+        </a-button>
+      </template>
+
+      <a-result
+        v-else-if="approved"
+        status="success"
+        title="操作已授权"
+        subtitle="管理站将完成此次操作，你可以关闭此窗口。"
+      />
+      <a-result v-else-if="loadError" status="error" title="无法载入此操作" :subtitle="loadError">
+        <template #extra>
+          <a-button @click="closeWindow">关闭窗口</a-button>
+        </template>
+      </a-result>
+      <a-spin v-else />
+    </a-card>
+  </div>
+</template>

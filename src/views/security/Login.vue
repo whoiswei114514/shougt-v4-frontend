@@ -77,13 +77,58 @@ async function finishFactor() {
 }
 </script>
 <template>
-  <div class="auth-layout auth-login">
-    <section class="auth-panel" v-if="!factor"><h1>登录</h1><p class="auth-subtitle">选择安全密钥、通行密钥或密码登录。</p><a-radio-group v-model="mode" type="button" class="auth-tabs"><a-radio value="key">安全密钥 / 通行密钥</a-radio><a-radio value="password">密码</a-radio></a-radio-group>
-      <a-form :model="form" layout="vertical" @submit="mode === 'key' ? loginKey() : loginPassword()"><a-form-item :label="mode === 'key' ? '账号（可选）' : '账号'"><a-input v-model="form.username" autocomplete="username webauthn" placeholder="你的瓜田账号" /></a-form-item><a-form-item v-if="mode === 'password'" label="密码"><a-input-password v-model="form.password" autocomplete="current-password" placeholder="请输入密码" /></a-form-item><Hccaptcha v-if="mode === 'password' && captchaRequired" v-model:token="form.captcha_token"/><a-form-item><a-checkbox v-model="form.remember_me">记住这次登录</a-checkbox></a-form-item><a-button class="auth-primary" type="primary" html-type="submit" :loading="busy">{{ mode === 'key' ? '使用安全密钥或通行密钥登录' : '登录' }}</a-button></a-form>
-      <a-button v-if="mode==='key' && showPcsc" long :disabled="busy" @click="loginKey('smartcard')">使用接触式智能卡登录</a-button>
-      <div class="auth-footer"><span>还没有账号？<RouterLink to="/register/">教育邮箱注册</RouterLink></span><a-tooltip :content="`账号协助：${contact}`"><a-link>登录帮助</a-link></a-tooltip></div>
-    </section>
-    <section class="auth-panel" v-else><p class="auth-step">VERIFY YOUR IDENTITY / 02</p><h1>{{factor.enrollment ? '配置管理员安全性' : '再确认一次，是你本人'}}</h1><p class="auth-subtitle">{{factor.enrollment ? '先通过教育邮箱确认本人，再绑定安全密钥与完成进阶认证。' : '此账号需要另一项独立验证。'}}</p><a-form :model="{}" layout="vertical" @submit="finishFactor"><a-form-item label="验证方式"><a-select v-model="factorMethod"><a-option v-for="item in factor.methods" :key="item" :value="item">{{item === 'security_key' ? '另一把安全密钥' : item === 'totp' ? '二次验证器' : item === 'email' ? '教育邮箱验证码' : '账号密码'}}</a-option></a-select></a-form-item>        <a-form-item v-if="factorMethod === 'password'" label="账号密码"><a-input-password v-model="factorPassword" autocomplete="current-password" /></a-form-item>
+  <div class="card-container">
+    <a-card v-if="!factor" class="auth-panel">
+      <a-typography-title :heading="2">登录</a-typography-title>
+      <a-divider class="divider-30" />
+      <p class="auth-subtitle">选择安全密钥、通行密钥或密码登录。</p>
+      <a-radio-group v-model="mode" type="button" class="auth-tabs">
+        <a-radio value="key">安全密钥 / 通行密钥</a-radio>
+        <a-radio value="password">密码</a-radio>
+      </a-radio-group>
+      <a-form :model="form" layout="vertical" @submit="mode === 'key' ? loginKey() : loginPassword()">
+        <a-form-item :label="mode === 'key' ? '账号（可选）' : '账号'">
+          <a-input v-model="form.username" autocomplete="username webauthn" placeholder="你的瓜田账号" />
+        </a-form-item>
+        <a-form-item v-if="mode === 'password'" label="密码">
+          <a-input-password v-model="form.password" autocomplete="current-password" placeholder="请输入密码" />
+        </a-form-item>
+        <Hccaptcha v-if="mode === 'password' && captchaRequired" v-model:token="form.captcha_token" />
+        <a-form-item>
+          <a-checkbox v-model="form.remember_me">记住这次登录</a-checkbox>
+        </a-form-item>
+        <a-form-item>
+          <a-button type="primary" long html-type="submit" :loading="busy">
+            {{ mode === 'key' ? '使用安全密钥或通行密钥登录' : '登录' }}
+          </a-button>
+        </a-form-item>
+      </a-form>
+      <a-button v-if="mode === 'key' && showPcsc" long :disabled="busy" @click="loginKey('smartcard')">
+        使用接触式智能卡登录
+      </a-button>
+      <div class="auth-footer">
+        <span>还没有账号？<RouterLink to="/register/"><a-link>教育邮箱注册</a-link></RouterLink></span>
+        <a-tooltip :content="`账号协助：${contact}`"><a-link>登录帮助</a-link></a-tooltip>
+      </div>
+    </a-card>
+
+    <a-card v-else class="auth-panel">
+      <a-typography-title :heading="2">{{ factor.enrollment ? '配置管理员安全性' : '再确认一次，是你本人' }}</a-typography-title>
+      <a-divider class="divider-30" />
+      <p class="auth-subtitle">
+        {{ factor.enrollment ? '先通过教育邮箱确认本人，再绑定安全密钥与完成进阶认证。' : '此账号需要另一项独立验证。' }}
+      </p>
+      <a-form :model="{}" layout="vertical" @submit="finishFactor">
+        <a-form-item label="验证方式">
+          <a-select v-model="factorMethod">
+            <a-option v-for="item in factor.methods" :key="item" :value="item">
+              {{ item === 'security_key' ? '另一把安全密钥' : item === 'totp' ? '二次验证器' : item === 'email' ? '教育邮箱验证码' : '账号密码' }}
+            </a-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item v-if="factorMethod === 'password'" label="账号密码">
+          <a-input-password v-model="factorPassword" autocomplete="current-password" />
+        </a-form-item>
         <template v-else-if="factorMethod === 'security_key'">
           <a-form-item v-if="showPcsc" label="第二把密钥连接方式">
             <a-select v-model="secondKeyConnection" :disabled="busy" aria-label="第二把密钥连接方式">
@@ -93,10 +138,22 @@ async function finishFactor() {
           </a-form-item>
           <p class="auth-subtitle">请连接或轻触另一把已绑定的安全密钥。重复验证第一把密钥无法完成登录。</p>
         </template>
-        <template v-else><a-form-item v-if="factorMethod === 'email' && factor.needs_email" label="教育邮箱"><a-input v-model="factorEmail" placeholder="name@st.shou.edu.cn" inputmode="email" /></a-form-item><a-form-item label="六位验证码"><a-input v-model="factorCode" :max-length="6" autocomplete="one-time-code" placeholder="000000" /></a-form-item><a-button v-if="factorMethod === 'email'" :disabled="countdown>0 || busy" @click="sendFactorEmail" class="mb-1">{{countdown ? `${countdown} 秒后重发` : '发送邮箱验证码'}}</a-button></template><a-button class="auth-primary" type="primary" html-type="submit" :loading="busy">确认并继续</a-button></a-form><div class="auth-footer"><a-link @click="factor=null">重新选择登录方式</a-link></div></section>
+        <template v-else>
+          <a-form-item v-if="factorMethod === 'email' && factor.needs_email" label="教育邮箱">
+            <a-input v-model="factorEmail" placeholder="name@st.shou.edu.cn" inputmode="email" />
+          </a-form-item>
+          <a-form-item label="六位验证码">
+            <a-input v-model="factorCode" :max-length="6" autocomplete="one-time-code" placeholder="000000" />
+          </a-form-item>
+          <a-button v-if="factorMethod === 'email'" :disabled="countdown > 0 || busy" @click="sendFactorEmail" class="mb-1">
+            {{ countdown ? `${countdown} 秒后重发` : '发送邮箱验证码' }}
+          </a-button>
+        </template>
+        <a-button type="primary" long html-type="submit" :loading="busy">确认并继续</a-button>
+      </a-form>
+      <div class="auth-footer">
+        <a-link @click="factor = null">重新选择登录方式</a-link>
+      </div>
+    </a-card>
   </div>
 </template>
-<style scoped>
-.auth-login { grid-template-columns: 1fr; max-width: 480px; margin: 7vh auto; }
-@media (max-width: 780px) { .auth-login { margin: 25px auto; } }
-</style>
